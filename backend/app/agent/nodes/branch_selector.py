@@ -2,10 +2,8 @@
 
 from typing import Any, Dict
 from langchain_core.messages import AIMessage
-from sqlalchemy import select
 
-from backend.app.database import AsyncSessionLocal
-from backend.app.models.branch import Branch
+from backend.app.service.branch import BranchService
 
 
 async def branch_selector_node(state: Dict[str, Any]) -> Dict[str, Any]:
@@ -17,10 +15,8 @@ async def branch_selector_node(state: Dict[str, Any]) -> Dict[str, Any]:
     messages = state.get("messages", [])
     last_user_msg = messages[-1].content.strip().lower() if messages else ""
 
-    # Fetch active branches
-    async with AsyncSessionLocal() as session:
-        result = await session.execute(select(Branch).where(Branch.is_active == True))
-        branches = result.scalars().all()
+    # Fetch active branches via the shared BranchService
+    branches = await BranchService.list_active_branches()
 
     if not branches:
         reply = "Sorry, no restaurant branches are currently active. Please check back later."

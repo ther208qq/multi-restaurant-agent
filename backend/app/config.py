@@ -7,8 +7,16 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     DATABASE_URL: str = "postgresql+asyncpg://postgres:postgrespassword@localhost:5432/restaurant_ai"
+
+    # LLM provider seam. "ollama" = local/tunnelled Ollama server;
+    # "openai" = any OpenAI-compatible /chat/completions endpoint (OpenAI,
+    # DeepSeek, Qwen/DashScope, Moonshot, Groq, OpenRouter, vLLM, LM Studio...).
+    LLM_PROVIDER: str = "ollama"
     OLLAMA_BASE_URL: str = "http://localhost:11434"
     OLLAMA_MODEL: str = "deepseek-r1:8b"
+    OPENAI_API_KEY: str = ""
+    OPENAI_BASE_URL: str = "https://api.openai.com/v1"
+    OPENAI_MODEL: str = "gpt-4o-mini"
 
     JWT_SECRET: str = "restaurant_ai_super_secret_jwt_key_change_in_production_32char_min"
     JWT_ALGORITHM: str = "HS256"

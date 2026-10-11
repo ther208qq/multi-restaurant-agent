@@ -1,27 +1,28 @@
-"""Ollama Client and DeepSeek R1 Reasoning Model Sanitizer."""
+"""The agent's single LLM seam.
+
+Nodes and tools call ``llm_client.generate(prompt, system_prompt, temperature)``
+and get a string back; the transport (a local Ollama server vs. any
+OpenAI-compatible API) is chosen by ``settings.LLM_PROVIDER`` in
+:mod:`backend.app.agent.llm_providers`. Swapping providers never touches a node.
+
+``strip_think_tags`` is re-exported here for backwards compatibility.
+"""
 
 import json
 import logging
 import re
-from typing import Any, Dict, List, Optional
-import httpx
+from typing import Any, Dict, Optional
 
-from backend.app.config import settings
+from backend.app.agent.llm_providers import build_provider, strip_think_tags
 
 logger = logging.getLogger("deepseek_llm")
 
-
-def strip_think_tags(text: str) -> str:
-    """Strip DeepSeek R1 <think>...</think> reasoning tags and contents."""
-    if not text:
-        return ""
-    # Remove complete <think>...</think> blocks (across multiple lines)
-    cleaned = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL)
-    # Remove unclosed <think> tag if text got truncated mid-reasoning
-    cleaned = re.sub(r"<think>.*$", "", cleaned, flags=re.DOTALL)
-    # Remove orphaned closing tags
-    cleaned = cleaned.replace("</think>", "").strip()
-    return cleaned
+__all__ = [
+    "LLMClient",
+    "extract_json_from_text",
+    "llm_client",
+    "strip_think_tags",
+]
 
 
 def extract_json_from_text(text: str) -> Optional[Dict[str, Any]]:
@@ -55,12 +56,15 @@ def extract_json_from_text(text: str) -> Optional[Dict[str, Any]]:
     return None
 
 
-class OllamaDeepSeekClient:
-    """Async HTTP Client for local Ollama running deepseek-r1:8b over tunnel."""
+class LLMClient:
+    """Facade over the provider chosen by ``settings.LLM_PROVIDER``.
 
-    def __init__(self, base_url: Optional[str] = None, model: Optional[str] = None):
-        self.base_url = (base_url or settings.OLLAMA_BASE_URL).rstrip("/")
-        self.model = model or settings.OLLAMA_MODEL
+    Keeps the historical ``generate(prompt, system_prompt, temperature)``
+    signature so nodes and tests stay provider-agnostic.
+    """
+
+    def __init__(self, provider=None):
+        self.provider = provider or build_provider()
 
     async def generate(
         self,
@@ -68,60 +72,9 @@ class OllamaDeepSeekClient:
         system_prompt: Optional[str] = None,
         temperature: float = 0.1,
     ) -> str:
-        """Call Ollama /api/generate or /api/chat with timeout and error fallback."""
-        url = f"{self.base_url}/api/chat"
-        messages = []
-        if system_prompt:
-            messages.append({"role": "system", "content": system_prompt})
-        messages.append({"role": "user", "content": prompt})
-
-        payload = {
-            "model": self.model,
-            "messages": messages,
-            "stream": False,
-            "options": {
-                "temperature": temperature,
-            },
-        }
-
-        try:
-            async with httpx.AsyncClient(timeout=45.0) as client:
-                response = await client.post(url, json=payload)
-                if response.status_code == 200:
-                    data = response.json()
-                    content = data.get("message", {}).get("content", "")
-                    return strip_think_tags(content)
-                else:
-                    logger.warning(
-                        "Ollama returned HTTP %d: %s. Using fallback parser.",
-                        response.status_code,
-                        response.text,
-                    )
-        except Exception as e:
-            logger.warning(
-                "Could not reach Ollama endpoint at %s (%s). Using defensive agent fallback.",
-                self.base_url,
-                str(e),
-            )
-
-        # Graceful fallback when Ollama tunnel is disconnected or offline
-        return self._rule_based_fallback(prompt, system_prompt)
-
-    def _rule_based_fallback(self, prompt: str, system_prompt: Optional[str] = None) -> str:
-        """Intelligent fallback when local Ollama tunnel is temporarily unreachable."""
-        lower_prompt = prompt.lower()
-        if "classify intent" in (system_prompt or "").lower():
-            if any(k in lower_prompt for k in ["order", "pizza", "pasta", "drink", "food", "buy", "cart", "eat"]):
-                return json.dumps({"intent": "order", "confidence": 0.95})
-            if any(k in lower_prompt for k in ["reserve", "table", "book", "seat", "reservation"]):
-                return json.dumps({"intent": "reservation", "confidence": 0.95})
-            if any(k in lower_prompt for k in ["status", "where is", "track", "my order", "my reservation"]):
-                return json.dumps({"intent": "status", "confidence": 0.95})
-            if any(k in lower_prompt for k in ["hour", "time", "address", "location", "menu", "open", "phone"]):
-                return json.dumps({"intent": "faq", "confidence": 0.95})
-            return json.dumps({"intent": "general", "confidence": 0.8})
-
-        return "Welcome to our restaurant! I can help you browse the menu, place an order, book a table, or check the status of your existing orders and reservations. How may I assist you today?"
+        return await self.provider.generate(
+            prompt, system_prompt=system_prompt, temperature=temperature
+        )
 
 
-ollama_client = OllamaDeepSeekClient()
+llm_client = LLMClient()

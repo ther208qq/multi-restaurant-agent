@@ -1,0 +1,106 @@
+"""Branch and Table business service.
+
+Owns the transaction boundary, applies branch-scope / permission rules, raises
+domain exceptions, and is the single entry point reused by the API and Agent.
+"""
+
+from typing import Any, Dict, List, Optional
+
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from backend.app.database import transactional_session
+from backend.app.exceptions import ForbiddenError, NotFoundError
+from backend.app.models.branch import Branch, Table
+from backend.app.models.user import StaffUser
+from backend.app.repo.branch import BranchRepo
+
+
+class BranchService:
+    @staticmethod
+    async def list_active_branches(
+        *, session: Optional[AsyncSession] = None
+    ) -> List[Branch]:
+        """Active branches with their tables (public listing / Agent branch list)."""
+        async with transactional_session(session) as s:
+            return await BranchRepo.list_branches(s, active_only=True)
+
+    @staticmethod
+    async def list_branches(
+        staff: StaffUser, *, session: Optional[AsyncSession] = None
+    ) -> List[Branch]:
+        """Branches visible to a staff member (scope-limited when branch-bound)."""
+        async with transactional_session(session) as s:
+            return await BranchRepo.list_branches(s, branch_id=staff.branch_id)
+
+    @staticmethod
+    async def get_branch(
+        branch_id: int,
+        *,
+        active_only: bool = False,
+        session: Optional[AsyncSession] = None,
+    ) -> Optional[Branch]:
+        """Load a branch by id, or ``None`` when absent (callers tolerate a miss)."""
+        async with transactional_session(session) as s:
+            return await BranchRepo.get_branch(s, branch_id, active_only=active_only)
+
+    @staticmethod
+    async def create_branch(
+        values: Dict[str, Any], *, session: Optional[AsyncSession] = None
+    ) -> Branch:
+        async with transactional_session(session) as s:
+            return await BranchRepo.create_branch(s, values)
+
+    @staticmethod
+    async def update_branch(
+        branch_id: int,
+        values: Dict[str, Any],
+        *,
+        session: Optional[AsyncSession] = None,
+    ) -> Branch:
+        async with transactional_session(session) as s:
+            branch = await BranchRepo.get_branch(s, branch_id)
+            if branch is None:
+                raise NotFoundError("Branch not found.")
+            return await BranchRepo.update_branch(s, branch, values)
+
+    @staticmethod
+    async def list_tables(
+        staff: StaffUser,
+        branch_id: Optional[int] = None,
+        *,
+        session: Optional[AsyncSession] = None,
+    ) -> List[Table]:
+        async with transactional_session(session) as s:
+            resolved_branch_id = staff.branch_id or branch_id or 1
+            return await BranchRepo.list_tables(s, resolved_branch_id)
+
+    @staticmethod
+    async def create_table(
+        staff: StaffUser,
+        values: Dict[str, Any],
+        *,
+        session: Optional[AsyncSession] = None,
+    ) -> Table:
+        if staff.branch_id and values.get("branch_id") != staff.branch_id:
+            raise ForbiddenError("Permission denied for this branch.")
+        async with transactional_session(session) as s:
+            return await BranchRepo.create_table(s, values)
+
+    @staticmethod
+    async def update_table(
+        staff: StaffUser,
+        table_id: int,
+        values: Dict[str, Any],
+        *,
+        session: Optional[AsyncSession] = None,
+    ) -> Table:
+        async with transactional_session(session) as s:
+            table = await BranchRepo.get_table(s, table_id)
+            if table is None:
+                raise NotFoundError("Table not found.")
+            if staff.branch_id and table.branch_id != staff.branch_id:
+                raise ForbiddenError("Permission denied for this branch.")
+            return await BranchRepo.update_table(s, table, values)
+
+
+__all__ = ["BranchService"]

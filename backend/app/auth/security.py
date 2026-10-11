@@ -1,41 +1,32 @@
-"""Security utilities: password hashing, JWT generation, and auth dependencies."""
+"""Security utilities: JWT decoding and FastAPI auth dependencies.
 
-from datetime import datetime, timedelta, timezone
+The pure password-hashing / JWT-encoding primitives live in
+:mod:`backend.app.auth.crypto` and are re-exported here so existing callers keep
+importing them from this module unchanged.
+
+Token-shape checks stay here; loading the user behind a token is delegated to
+:class:`backend.app.service.auth.AuthService`, so this module performs no DB
+access of its own (spec §3.5 / D3).
+"""
+
 from typing import Optional
-import bcrypt
+
 import jwt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.app.auth.crypto import (
+    create_access_token,
+    get_password_hash,
+    verify_password,
+)
 from backend.app.config import settings
 from backend.app.database import get_db
 from backend.app.models.user import Customer, StaffUser
+from backend.app.service.auth import AuthService
 
 security_bearer = HTTPBearer(auto_error=False)
-
-
-def verify_password(plain_password: str, hashed_password: str) -> bool:
-    """Verify a plain password against a bcrypt hash."""
-    return bcrypt.checkpw(plain_password.encode("utf-8"), hashed_password.encode("utf-8"))
-
-
-def get_password_hash(password: str) -> str:
-    """Generate bcrypt hash for a plain password."""
-    salt = bcrypt.gensalt()
-    return bcrypt.hashpw(password.encode("utf-8"), salt).decode("utf-8")
-
-
-def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
-    """Encode a JWT access token with expiration."""
-    to_encode = data.copy()
-    expire = datetime.now(timezone.utc) + (
-        expires_delta or timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
-    )
-    to_encode.update({"exp": expire})
-    encoded_jwt = jwt.encode(to_encode, settings.JWT_SECRET, algorithm=settings.JWT_ALGORITHM)
-    return encoded_jwt
 
 
 def decode_access_token(token: str) -> dict:
@@ -71,16 +62,7 @@ async def get_current_customer(
             detail="Invalid customer token",
         )
 
-    stmt = select(Customer).where(Customer.id == int(customer_id))
-    result = await db.execute(stmt)
-    customer = result.scalar_one_or_none()
-
-    if not customer:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Customer not found",
-        )
-    return customer
+    return await AuthService.get_customer(int(customer_id), session=db)
 
 
 async def get_current_staff(
@@ -103,16 +85,7 @@ async def get_current_staff(
             detail="Invalid staff token",
         )
 
-    stmt = select(StaffUser).where(StaffUser.id == int(staff_id))
-    result = await db.execute(stmt)
-    staff = result.scalar_one_or_none()
-
-    if not staff:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Staff user not found",
-        )
-    return staff
+    return await AuthService.get_staff(int(staff_id), session=db)
 
 
 def require_admin(staff: StaffUser = Depends(get_current_staff)) -> StaffUser:
@@ -123,3 +96,15 @@ def require_admin(staff: StaffUser = Depends(get_current_staff)) -> StaffUser:
             detail="Admin privileges required",
         )
     return staff
+
+
+__all__ = [
+    "security_bearer",
+    "verify_password",
+    "get_password_hash",
+    "create_access_token",
+    "decode_access_token",
+    "get_current_customer",
+    "get_current_staff",
+    "require_admin",
+]

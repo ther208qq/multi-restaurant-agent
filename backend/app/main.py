@@ -16,6 +16,7 @@ from backend.app.agent.checkpointer import (
 )
 from backend.app.config import settings
 from backend.app.database import init_db
+from backend.app.error_handlers import register_exception_handlers
 from backend.app.routes import (
     auth_router,
     branches_router,
@@ -68,6 +69,9 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# Map domain exceptions raised by the Service layer to HTTP responses
+register_exception_handlers(app)
+
 # CORS Middleware configuration
 app.add_middleware(
     CORSMiddleware,
@@ -92,4 +96,11 @@ app.include_router(staff_reservations_router, prefix="/api")
 @app.get("/health")
 def health_check():
     """Health check endpoint for cloud hosting / Docker healthchecks."""
-    return {"status": "ok", "environment": settings.ENVIRONMENT, "model": settings.OLLAMA_MODEL}
+    provider = (settings.LLM_PROVIDER or "ollama").strip().lower()
+    model = settings.OPENAI_MODEL if provider in {"openai", "openai-compatible", "api"} else settings.OLLAMA_MODEL
+    return {
+        "status": "ok",
+        "environment": settings.ENVIRONMENT,
+        "llm_provider": provider,
+        "model": model,
+    }

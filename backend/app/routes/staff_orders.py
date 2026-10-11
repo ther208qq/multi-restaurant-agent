@@ -1,17 +1,21 @@
-"""Staff Orders Management Routes."""
+"""Staff Orders Management Routes.
+
+Thin HTTP layer: request parsing, branch scoping and response shaping only.
+All order business rules (status transitions, stock reversal) live in
+:class:`backend.app.service.order.OrderService`; domain exceptions raised there
+are mapped to HTTP status codes by the global exception handler.
+"""
 
 from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import select, update
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
 from backend.app.auth.security import get_current_staff
 from backend.app.database import get_db
-from backend.app.models.menu import MenuItemStock
-from backend.app.models.order import Order, OrderItem
+from backend.app.models.order import Order
 from backend.app.models.user import StaffUser
 from backend.app.schemas.order import OrderResponse, OrderStatusUpdate
+from backend.app.service.order import OrderService
 
 router = APIRouter(prefix="/staff/orders", tags=["Staff Orders Management"])
 
@@ -53,30 +57,15 @@ async def list_staff_orders(
     db: AsyncSession = Depends(get_db),
 ):
     """List orders, optionally filtered by branch and status."""
-    stmt = (
-        select(Order)
-        .options(
-            selectinload(Order.items),
-            selectinload(Order.customer),
-            selectinload(Order.branch),
-        )
-        .order_by(Order.created_at.desc())
+    # Scoping: a branch-restricted staff member always sees their own branch;
+    # otherwise the optional ?branch_id filter applies.
+    effective_branch = current_staff.branch_id or branch_id
+    orders = await OrderService.list_orders(
+        branch_id=effective_branch,
+        order_status=order_status,
+        session=db,
     )
-
-    # Scoping: if staff is branch-restricted, enforce their branch
-    if current_staff.branch_id:
-        stmt = stmt.where(Order.branch_id == current_staff.branch_id)
-    elif branch_id:
-        stmt = stmt.where(Order.branch_id == branch_id)
-
-    if order_status:
-        stmt = stmt.where(Order.status == order_status)
-
-    res = await db.execute(stmt)
-    orders = res.scalars().all()
-
-    output = [_format_order_response(o) for o in orders]
-    return output
+    return [_format_order_response(o) for o in orders]
 
 
 @router.patch("/{order_id}/status", response_model=OrderResponse)
@@ -87,93 +76,10 @@ async def update_order_status(
     db: AsyncSession = Depends(get_db),
 ):
     """Update order status (placed -> preparing -> ready -> delivered / cancelled)."""
-    stmt = (
-        select(Order)
-        .where(Order.id == order_id)
-        .options(
-            selectinload(Order.items).selectinload(OrderItem.menu_item),
-            selectinload(Order.customer),
-            selectinload(Order.branch),
-        )
+    order = await OrderService.update_status(
+        order_id,
+        payload.status,
+        staff=current_staff,
+        session=db,
     )
-    res = await db.execute(stmt)
-    order = res.scalar_one_or_none()
-
-    if not order:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Order #{order_id} not found.",
-        )
-
-    # Permission check if staff is branch-restricted
-    if current_staff.branch_id and order.branch_id != current_staff.branch_id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="You do not have permission to manage orders for this branch.",
-        )
-
-    valid_statuses = ["placed", "preparing", "ready", "delivered", "cancelled"]
-    if payload.status not in valid_statuses:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid status '{payload.status}'. Must be one of {valid_statuses}.",
-        )
-
-    # No-op guard: if payload.status == order.status already, skip all stock logic entirely
-    if payload.status == order.status:
-        return _format_order_response(order)
-
-    # Stock reversal logic:
-    # 1. On transition INTO "cancelled" (from any non-cancelled status):
-    #    restore each item's quantity
-    if order.status != "cancelled" and payload.status == "cancelled":
-        for item in order.items:
-            restore_stmt = (
-                update(MenuItemStock)
-                .where(
-                    MenuItemStock.menu_item_id == item.menu_item_id,
-                    MenuItemStock.branch_id == order.branch_id,
-                )
-                .values(stock_quantity=MenuItemStock.stock_quantity + item.quantity)
-            )
-            await db.execute(restore_stmt)
-
-    # 2. On transition OUT of "cancelled" back to "placed" (un-cancel):
-    #    re-decrement each item's quantity using the atomic conditional pattern
-    elif order.status == "cancelled" and payload.status == "placed":
-        failed_items = []
-        for item in order.items:
-            decrement_stmt = (
-                update(MenuItemStock)
-                .where(
-                    MenuItemStock.menu_item_id == item.menu_item_id,
-                    MenuItemStock.branch_id == order.branch_id,
-                    MenuItemStock.stock_quantity >= item.quantity,
-                )
-                .values(stock_quantity=MenuItemStock.stock_quantity - item.quantity)
-            )
-            result = await db.execute(decrement_stmt)
-            if result.rowcount != 1:
-                item_name = item.menu_item.name if item.menu_item else f"Item #{item.menu_item_id}"
-                failed_items.append(item_name)
-
-        if failed_items:
-            await db.rollback()
-            unique_names = list(dict.fromkeys(failed_items))
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=f"Cannot un-cancel order: insufficient stock for item(s): {', '.join(unique_names)}.",
-            )
-
-    elif order.status == "cancelled" and payload.status != "placed":
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="A cancelled order can only be un-cancelled to 'placed' status.",
-        )
-
-    order.status = payload.status
-    await db.commit()
-    await db.refresh(order)
-
     return _format_order_response(order)
-

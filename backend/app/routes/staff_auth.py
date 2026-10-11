@@ -1,13 +1,19 @@
-"""Staff Authentication Routes."""
+"""Staff Authentication Routes.
 
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+Thin HTTP layer: request parsing, token minting and response shaping only.
+Credential checks are delegated to
+:class:`backend.app.service.auth.AuthService`; domain exceptions raised there
+are mapped to HTTP status codes by the global exception handler.
+"""
+
+from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.app.auth.security import create_access_token, get_current_staff, get_password_hash, verify_password
+from backend.app.auth.security import create_access_token, get_current_staff
 from backend.app.database import get_db
 from backend.app.models.user import StaffUser
 from backend.app.schemas.auth import StaffLoginRequest, StaffResponse, TokenResponse
+from backend.app.service.auth import AuthService
 
 router = APIRouter(prefix="/staff", tags=["Staff Auth"])
 
@@ -15,16 +21,9 @@ router = APIRouter(prefix="/staff", tags=["Staff Auth"])
 @router.post("/login", response_model=TokenResponse)
 async def staff_login(payload: StaffLoginRequest, db: AsyncSession = Depends(get_db)):
     """Authenticate staff member by username and password."""
-    stmt = select(StaffUser).where(StaffUser.username == payload.username)
-    res = await db.execute(stmt)
-    staff = res.scalar_one_or_none()
-
-    if not staff or not verify_password(payload.password, staff.password_hash):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid username or password.",
-        )
-
+    staff = await AuthService.authenticate_staff(
+        payload.username, payload.password, session=db
+    )
     token = create_access_token(
         data={
             "sub": str(staff.id),

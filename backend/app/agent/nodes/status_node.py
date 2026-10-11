@@ -1,13 +1,15 @@
-"""Status Check Node for Customer Orders and Reservations."""
+"""Status Check Node for Customer Orders and Reservations.
+
+Reads the customer's recent orders and reservations through OrderService and
+ReservationService (each owns its own session), so this node holds no query of
+its own and no database-session handling.
+"""
 
 from typing import Any, Dict
 from langchain_core.messages import AIMessage
-from sqlalchemy import select
-from sqlalchemy.orm import selectinload
 
-from backend.app.database import AsyncSessionLocal
-from backend.app.models.order import Order
-from backend.app.models.reservation import Reservation
+from backend.app.service.order import OrderService
+from backend.app.service.reservation import ReservationService
 
 
 async def status_node(state: Dict[str, Any]) -> Dict[str, Any]:
@@ -15,28 +17,15 @@ async def status_node(state: Dict[str, Any]) -> Dict[str, Any]:
     customer_id = state.get("customer_id")
     branch_id = state.get("branch_id")
 
-    async with AsyncSessionLocal() as session:
-        # 1. Fetch recent orders for this customer at this branch
-        order_stmt = (
-            select(Order)
-            .where(Order.customer_id == customer_id, Order.branch_id == branch_id)
-            .options(selectinload(Order.items))
-            .order_by(Order.created_at.desc())
-            .limit(3)
-        )
-        order_res = await session.execute(order_stmt)
-        orders = order_res.scalars().all()
+    # 1. Fetch recent orders for this customer at this branch
+    orders = await OrderService.list_orders(
+        customer_id=customer_id, branch_id=branch_id, limit=3
+    )
 
-        # 2. Fetch upcoming reservations for this customer at this branch
-        res_stmt = (
-            select(Reservation)
-            .where(Reservation.customer_id == customer_id, Reservation.branch_id == branch_id)
-            .options(selectinload(Reservation.table))
-            .order_by(Reservation.start_time.desc())
-            .limit(3)
-        )
-        res_res = await session.execute(res_stmt)
-        reservations = res_res.scalars().all()
+    # 2. Fetch upcoming reservations for this customer at this branch
+    reservations = await ReservationService.list_reservations(
+        customer_id=customer_id, branch_id=branch_id, descending=True, limit=3
+    )
 
     sections = []
 

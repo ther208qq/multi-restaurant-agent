@@ -6,7 +6,8 @@ import re
 from typing import Any, Dict
 from langchain_core.messages import AIMessage
 
-from backend.app.agent.llm import extract_json_from_text, ollama_client
+from backend.app.agent.flows import stamp
+from backend.app.agent.llm import extract_json_from_text, llm_client
 from backend.app.agent.tools.table_tools import check_table_availability_and_book
 
 
@@ -19,8 +20,12 @@ async def reservation_node(state: Dict[str, Any]) -> Dict[str, Any]:
     user_lower = user_msg.lower()
 
     # 1. Parse reservation parameters from message
+    # The extractor resolves relative dates ("tomorrow", "tonight") against the
+    # reference date below, so it must be *today*: a hardcoded reference silently
+    # books every relative-date reservation in the past.
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     sys_prompt = f"""You are a restaurant reservation detail extractor.
-Current date reference: 2026-09-16.
+Current date reference: {today}.
 Extract the booking details from the customer message:
 "{user_msg}"
 
@@ -35,7 +40,7 @@ Output a JSON object with this exact schema:
 
 Output ONLY valid JSON.
 """
-    raw_llm = await ollama_client.generate(prompt=user_msg, system_prompt=sys_prompt)
+    raw_llm = await llm_client.generate(prompt=user_msg, system_prompt=sys_prompt)
     extracted = extract_json_from_text(raw_llm) or {}
 
     # Merge with existing draft if present
@@ -95,13 +100,13 @@ Output ONLY valid JSON.
         return {
             **state,
             "active_flow": "reservation",
-            "reservation_draft": {
+            "reservation_draft": stamp({
                 "party_size": party_size,
                 "date": date_str,
                 "time": time_str,
                 "seating_area": seating_area,
                 "notes": notes,
-            },
+            }),
             "last_reply": prompt_reply,
             "messages": [AIMessage(content=prompt_reply)],
         }
@@ -157,13 +162,13 @@ Output ONLY valid JSON.
         return {
             **state,
             "active_flow": "reservation",
-            "reservation_draft": {
+            "reservation_draft": stamp({
                 "party_size": party_size,
                 "date": date_str,
                 "time": None,  # Reset time so user can pick another slot
                 "seating_area": seating_area,
                 "notes": notes,
-            },
+            }),
             "last_reply": reply,
             "messages": [AIMessage(content=reply)],
         }

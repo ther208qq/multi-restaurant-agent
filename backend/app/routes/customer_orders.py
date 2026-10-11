@@ -1,18 +1,21 @@
-"""Customer Orders and Reservations History Routes."""
+"""Customer Orders and Reservations History Routes.
+
+Thin HTTP layer: it resolves the current customer and shapes responses; the
+customer's order / reservation history is fetched through OrderService and
+ReservationService, so no query or eager-load lives here.
+"""
 
 from typing import List
 from fastapi import APIRouter, Depends
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
 from backend.app.auth.security import get_current_customer
 from backend.app.database import get_db
-from backend.app.models.order import Order
-from backend.app.models.reservation import Reservation
 from backend.app.models.user import Customer
 from backend.app.schemas.order import OrderResponse
 from backend.app.schemas.reservation import ReservationResponse
+from backend.app.service.order import OrderService
+from backend.app.service.reservation import ReservationService
 
 router = APIRouter(tags=["Customer Activity"])
 
@@ -23,17 +26,9 @@ async def get_my_orders(
     db: AsyncSession = Depends(get_db),
 ):
     """Get all orders placed by the current customer across branches."""
-    stmt = (
-        select(Order)
-        .where(Order.customer_id == current_customer.id)
-        .options(
-            selectinload(Order.items),
-            selectinload(Order.branch),
-        )
-        .order_by(Order.created_at.desc())
+    orders = await OrderService.list_orders(
+        customer_id=current_customer.id, session=db
     )
-    res = await db.execute(stmt)
-    orders = res.scalars().all()
 
     # Format response
     output = []
@@ -75,17 +70,9 @@ async def get_my_reservations(
     db: AsyncSession = Depends(get_db),
 ):
     """Get all table reservations booked by the current customer across branches."""
-    stmt = (
-        select(Reservation)
-        .where(Reservation.customer_id == current_customer.id)
-        .options(
-            selectinload(Reservation.table),
-            selectinload(Reservation.branch),
-        )
-        .order_by(Reservation.start_time.desc())
+    reservations = await ReservationService.list_reservations(
+        customer_id=current_customer.id, descending=True, session=db
     )
-    res = await db.execute(stmt)
-    reservations = res.scalars().all()
 
     output = []
     for r in reservations:

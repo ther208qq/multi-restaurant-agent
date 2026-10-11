@@ -5,9 +5,11 @@ import re
 from typing import Any, Dict
 from langchain_core.messages import AIMessage
 
-from backend.app.agent.llm import extract_json_from_text, ollama_client
+from backend.app.agent.flows import stamp
+from backend.app.agent.llm import extract_json_from_text, llm_client
 from backend.app.agent.tools.menu_tools import format_menu_for_prompt, get_branch_menu_data
 from backend.app.agent.tools.order_tools import create_order_atomic
+from backend.app.service.order import OrderService
 
 
 async def order_node(state: Dict[str, Any]) -> Dict[str, Any]:
@@ -117,7 +119,7 @@ If the message does not mention order_type, default to "dine_in".
 If no menu item is ordered, return {{"items": []}}.
 Output ONLY the JSON object.
 """
-    raw_llm = await ollama_client.generate(prompt=user_msg, system_prompt=extraction_prompt)
+    raw_llm = await llm_client.generate(prompt=user_msg, system_prompt=extraction_prompt)
     extracted = extract_json_from_text(raw_llm) or {}
 
     # Rule-based fallback extraction if LLM JSON parse yielded empty items
@@ -173,45 +175,45 @@ Output ONLY the JSON object.
             return {
                 **state,
                 "active_flow": "order",
-                "order_draft": {
+                "order_draft": stamp({
                     "items": items_to_order,
                     "order_type": "delivery",
                     "awaiting_address": True,
-                },
+                }),
                 "last_reply": ask_addr_reply,
                 "messages": [AIMessage(content=ask_addr_reply)],
             }
 
-    # 4. Check stock availability for all items before confirmation!
+    # 4. Check stock availability and estimate the total. Pricing and the
+    #    stock-shortfall rule come from OrderService.preview_order -- this node
+    #    keeps no copy of them. Items whose id is not on this branch's menu are
+    #    dropped, matching the previous behaviour.
+    items_map = {
+        it["id"]: it
+        for cat in menu_data.get("categories", [])
+        for it in cat.get("items", [])
+    }
+    known_items = [it for it in items_to_order if it.get("menu_item_id") in items_map]
+    preview = (
+        await OrderService.preview_order(branch_id, known_items)
+        if known_items
+        else {"items": [], "total_amount": 0.0}
+    )
+
     stock_errors = []
-    items_map = {}
-    for cat in menu_data.get("categories", []):
-        for it in cat.get("items", []):
-            items_map[it["id"]] = it
-
-    total_est = 0.0
     summary_lines = []
-    for it in items_to_order:
-        m_item = items_map.get(it["menu_item_id"])
-        if not m_item:
-            continue
-        req_qty = it.get("quantity", 1)
-        avail_qty = m_item.get("stock_quantity", 0)
-
-        if avail_qty < req_qty:
-            if avail_qty == 0:
-                stock_errors.append(f"• '{m_item['name']}' is currently out of stock.")
+    for line in preview["items"]:
+        if line["shortfall"]:
+            if line["available_quantity"] == 0:
+                stock_errors.append(f"• '{line['name']}' is currently out of stock.")
             else:
-                shortfall = req_qty - avail_qty
-                stock_errors.append(f"• '{m_item['name']}': only {avail_qty} available (requested {req_qty}, short by {shortfall}).")
+                stock_errors.append(
+                    f"• '{line['name']}': only {line['available_quantity']} available "
+                    f"(requested {line['qty']}, short by {line['shortfall']})."
+                )
             continue
-
-        item_price = m_item["base_price"]
-        for v in it.get("selected_variants", []):
-            item_price += v.get("delta", 0.0)
-        subtotal = item_price * req_qty
-        total_est += subtotal
-        summary_lines.append(f"  • {req_qty}x {m_item['name']} — ${subtotal:.2f}")
+        summary_lines.append(f"  • {line['qty']}x {line['name']} — ${line['subtotal']:.2f}")
+    total_est = preview["total_amount"]
 
     if stock_errors:
         err_msg = (
@@ -241,13 +243,13 @@ Output ONLY the JSON object.
     return {
         **state,
         "active_flow": "order",
-        "order_draft": {
+        "order_draft": stamp({
             "items": items_to_order,
             "order_type": order_type,
             "delivery_address": delivery_address,
             "total_estimated": total_est,
             "awaiting_confirmation": True,
-        },
+        }),
         "last_reply": summary_text,
         "messages": [AIMessage(content=summary_text)],
     }

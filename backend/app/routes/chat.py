@@ -5,16 +5,15 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 from langchain_core.messages import HumanMessage
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.agent.checkpointer import get_checkpointer
 from backend.app.agent.graph import build_restaurant_graph
 from backend.app.auth.security import get_current_customer
 from backend.app.database import get_db
-from backend.app.models.branch import Branch
 from backend.app.models.user import Customer
 from backend.app.schemas.chat import ChatRequest, ChatResponse
+from backend.app.service.branch import BranchService
 
 logger = logging.getLogger("chat")
 router = APIRouter(prefix="/chat", tags=["Customer Chat Agent"])
@@ -39,8 +38,7 @@ async def chat_with_agent(
     branch_id = payload.branch_id
     branch_name: Optional[str] = None
     if branch_id:
-        branch_res = await db.execute(select(Branch).where(Branch.id == branch_id))
-        branch_obj = branch_res.scalar_one_or_none()
+        branch_obj = await BranchService.get_branch(branch_id, session=db)
         if branch_obj:
             branch_name = branch_obj.name
 
