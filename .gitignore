@@ -29,6 +29,7 @@ yarn-error.log*
 
 # --- Database / local data ---
 *.sql.bak
+scripts/backups/
 postgres_data/
 pgdata/
 *.db
