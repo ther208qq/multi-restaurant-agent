@@ -20,7 +20,7 @@ export default function OrdersManager({ currentStaff, branches }) {
       const data = await api.getStaffOrders(bId, statusFilter || null);
       setOrders(data);
     } catch (err) {
-      setError(err.message || 'Failed to load staff orders.');
+      setError(err.message || '加载员工订单失败。');
     } finally {
       setLoading(false);
     }
@@ -36,26 +36,41 @@ export default function OrdersManager({ currentStaff, branches }) {
       await api.updateOrderStatus(orderId, newStatus);
       await fetchOrders();
     } catch (err) {
-      alert(`Failed to update order #${orderId}: ${err.message}`);
+      alert(`更新订单 #${orderId} 失败：${err.message}`);
     } finally {
       setUpdatingId(null);
     }
   };
 
+  const STATUS_LABELS = {
+    placed: '已下单',
+    preparing: '制作中',
+    ready: '已就绪',
+    delivered: '已送达',
+    cancelled: '已取消',
+  };
+
+  const ORDER_TYPE_LABELS = {
+    dine_in: '堂食',
+    takeaway: '外带',
+    delivery: '外卖',
+  };
+
   const getStatusBadge = (status) => {
+    const label = STATUS_LABELS[status] || status;
     switch (status) {
       case 'placed':
-        return <span className="badge badge-info">PLACED</span>;
+        return <span className="badge badge-info">{label}</span>;
       case 'preparing':
-        return <span className="badge badge-warning">PREPARING</span>;
+        return <span className="badge badge-warning">{label}</span>;
       case 'ready':
-        return <span className="badge badge-success">READY</span>;
+        return <span className="badge badge-success">{label}</span>;
       case 'delivered':
-        return <span className="badge badge-neutral">DELIVERED</span>;
+        return <span className="badge badge-neutral">{label}</span>;
       case 'cancelled':
-        return <span className="badge badge-danger">CANCELLED</span>;
+        return <span className="badge badge-danger">{label}</span>;
       default:
-        return <span className="badge badge-neutral">{status.toUpperCase()}</span>;
+        return <span className="badge badge-neutral">{label}</span>;
     }
   };
 
@@ -78,7 +93,7 @@ export default function OrdersManager({ currentStaff, branches }) {
         <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
           {!currentStaff.branch_id && (
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <label style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-muted)' }}>Branch:</label>
+              <label style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-muted)' }}>门店：</label>
               <select
                 value={selectedBranchId}
                 onChange={(e) => setSelectedBranchId(Number(e.target.value))}
@@ -94,18 +109,18 @@ export default function OrdersManager({ currentStaff, branches }) {
           )}
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <label style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-muted)' }}>Status:</label>
+            <label style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-muted)' }}>状态：</label>
             <select
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value)}
               style={{ padding: '6px 12px', borderRadius: '6px', border: '1px solid var(--surface-border)' }}
             >
-              <option value="">All Statuses</option>
-              <option value="placed">Placed</option>
-              <option value="preparing">Preparing</option>
-              <option value="ready">Ready</option>
-              <option value="delivered">Delivered</option>
-              <option value="cancelled">Cancelled</option>
+              <option value="">全部状态</option>
+              <option value="placed">已下单</option>
+              <option value="preparing">制作中</option>
+              <option value="ready">已就绪</option>
+              <option value="delivered">已送达</option>
+              <option value="cancelled">已取消</option>
             </select>
           </div>
         </div>
@@ -116,7 +131,7 @@ export default function OrdersManager({ currentStaff, branches }) {
           className="btn-outline btn-sm"
           style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
         >
-          <RefreshCw size={14} className={loading ? 'spin' : ''} /> Refresh Orders
+          <RefreshCw size={14} className={loading ? 'spin' : ''} /> 刷新订单
         </button>
       </div>
 
@@ -130,12 +145,12 @@ export default function OrdersManager({ currentStaff, branches }) {
       {/* Orders List */}
       {loading && orders.length === 0 ? (
         <div style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-muted)' }}>
-          Loading live orders...
+          正在加载实时订单…
         </div>
       ) : orders.length === 0 ? (
         <div style={{ textAlign: 'center', padding: '3rem', background: 'white', borderRadius: 'var(--radius-lg)', border: '1px solid var(--surface-border)', color: 'var(--text-muted)' }}>
           <ShoppingBag size={40} style={{ margin: '0 auto 8px', opacity: 0.4 }} />
-          <p>No orders found matching the filter.</p>
+          <p>没有符合筛选条件的订单。</p>
         </div>
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(360px, 1fr))', gap: '1rem' }}>
@@ -160,11 +175,11 @@ export default function OrdersManager({ currentStaff, branches }) {
                       #{o.id}
                     </span>
                     <span style={{ fontSize: '0.8rem', background: '#f1f5f9', padding: '2px 8px', borderRadius: '4px', fontWeight: 600 }}>
-                      {o.order_type.toUpperCase()}
+                      {ORDER_TYPE_LABELS[o.order_type] || o.order_type}
                     </span>
                   </div>
                   <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginTop: '2px' }}>
-                    Customer: <strong>{o.customer_name || 'Guest'}</strong>
+                    顾客：<strong>{o.customer_name || '访客'}</strong>
                   </div>
                 </div>
                 {getStatusBadge(o.status)}
@@ -185,7 +200,7 @@ export default function OrdersManager({ currentStaff, branches }) {
                 {o.items.map((item, idx) => (
                   <div key={idx} style={{ display: 'flex', justifyContent: 'space-between' }}>
                     <span>
-                      {item.quantity}x Item #{item.menu_item_id}
+                      {item.quantity}× 菜品 #{item.menu_item_id}
                       {item.item_notes ? ` (${item.item_notes})` : ''}
                     </span>
                     <span style={{ fontWeight: 600 }}>
@@ -197,13 +212,13 @@ export default function OrdersManager({ currentStaff, branches }) {
 
               {o.delivery_address && (
                 <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                  <strong>Address:</strong> {o.delivery_address}
+                  <strong>地址：</strong> {o.delivery_address}
                 </div>
               )}
 
               {o.special_notes && (
                 <div style={{ fontSize: '0.8rem', color: '#9a3412', background: 'var(--primary-light)', padding: '6px 8px', borderRadius: '6px' }}>
-                  <strong>Notes:</strong> {o.special_notes}
+                  <strong>备注：</strong> {o.special_notes}
                 </div>
               )}
 
@@ -225,7 +240,7 @@ export default function OrdersManager({ currentStaff, branches }) {
                     className="btn-primary btn-sm"
                     style={{ flex: 1, justifyContent: 'center' }}
                   >
-                    <Clock size={14} /> Start Preparing
+                    <Clock size={14} /> 开始制作
                   </button>
                 )}
 
@@ -236,7 +251,7 @@ export default function OrdersManager({ currentStaff, branches }) {
                     className="btn-primary btn-sm"
                     style={{ flex: 1, justifyContent: 'center', background: '#10b981' }}
                   >
-                    <Check size={14} /> Mark Ready
+                    <Check size={14} /> 标记为已就绪
                   </button>
                 )}
 
@@ -247,7 +262,7 @@ export default function OrdersManager({ currentStaff, branches }) {
                     className="btn-secondary btn-sm"
                     style={{ flex: 1, justifyContent: 'center' }}
                   >
-                    <Truck size={14} /> Complete / Delivered
+                    <Truck size={14} /> 完成 / 已送达
                   </button>
                 )}
 
@@ -255,13 +270,13 @@ export default function OrdersManager({ currentStaff, branches }) {
                   <button
                     disabled={updatingId === o.id}
                     onClick={() => {
-                      if (confirm(`Cancel order #${o.id}?`)) {
+                      if (confirm(`确定取消订单 #${o.id}？`)) {
                         handleUpdateStatus(o.id, 'cancelled');
                       }
                     }}
                     className="btn-outline btn-sm"
                     style={{ color: '#ef4444' }}
-                    title="Cancel Order"
+                    title="取消订单"
                   >
                     <XCircle size={14} />
                   </button>

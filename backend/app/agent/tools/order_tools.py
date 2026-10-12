@@ -13,10 +13,8 @@ from typing import Any, Dict, List, Optional
 from backend.app.exceptions import DomainError
 from backend.app.service.order import OrderService
 
-EMPTY_ORDER_ERROR = "Order cannot be empty. Please specify items to order."
-MISSING_ADDRESS_ERROR = (
-    "Delivery orders require a delivery address. Please provide your address."
-)
+EMPTY_ORDER_ERROR = "订单不能为空，请指定想要点的菜品。"
+MISSING_ADDRESS_ERROR = "外卖订单需要填写配送地址，请提供您的收货地址。"
 
 
 def _first_shortfall(lines: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
@@ -34,16 +32,16 @@ def _shortfall_response(short: Dict[str, Any]) -> Dict[str, Any]:
     if available == 0:
         return {
             "success": False,
-            "error": f"'{name}' is currently out of stock at this branch.",
+            "error": f"「{name}」在本门店已售罄。",
             "out_of_stock_item": name,
             "available_quantity": 0,
         }
     return {
         "success": False,
         "error": (
-            f"Insufficient stock for '{name}'. Only {available} available "
-            f"(requested {short['qty']}, short by {short['shortfall']}). "
-            "Please adjust your quantity."
+            f"「{name}」库存不足，仅剩 {available} 份"
+            f"（需要 {short['qty']} 份，缺 {short['shortfall']} 份）。"
+            "请调整数量后重试。"
         ),
         "shortfall_item": name,
         "available_quantity": available,

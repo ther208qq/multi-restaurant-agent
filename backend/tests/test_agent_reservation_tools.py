@@ -69,7 +69,7 @@ async def test_success_delegates_and_returns_legacy_shape(monkeypatch):
     assert result['table_label'] == 'T1'
     assert result['seating_area'] == 'indoor'
     assert result['date'] == '2026-10-20'
-    assert result['time'] == '07:00 PM'
+    assert result['time'] == '19:00'
     assert result['party_size'] == 2
     assert result['duration_minutes'] == 90
     assert calls['book'][0] == 3
@@ -78,7 +78,7 @@ async def test_success_delegates_and_returns_legacy_shape(monkeypatch):
 
 
 async def test_table_unavailable_sets_alternatives_flag(monkeypatch):
-    msg = 'No tables currently available for 2 guests in the rooftop area at 07:00 PM.'
+    msg = '19:00 天台花园区域暂时没有可供 2 位就餐的餐桌。'
     _patch(monkeypatch, exc=TableUnavailableError(msg))
     result = await check_table_availability_and_book(
         customer_id=1,
@@ -93,7 +93,7 @@ async def test_table_unavailable_sets_alternatives_flag(monkeypatch):
 
 
 async def test_race_conflict_sets_race_flag(monkeypatch):
-    exc = ReservationRaceError('That table was just reserved moments ago.')
+    exc = ReservationRaceError('该餐桌刚刚被其他顾客预订。')
     _patch(monkeypatch, exc=exc)
     result = await check_table_availability_and_book(
         customer_id=1,
@@ -108,14 +108,14 @@ async def test_race_conflict_sets_race_flag(monkeypatch):
 
 
 async def test_branch_not_found_becomes_plain_error(monkeypatch):
-    _patch(monkeypatch, exc=NotFoundError('Branch #5 not found.'))
+    _patch(monkeypatch, exc=NotFoundError('门店 #5 不存在。'))
     result = await check_table_availability_and_book(
         customer_id=1,
         branch_id=5,
         start_time=datetime(2026, 10, 20, 19, 0, tzinfo=timezone.utc),
         party_size=2,
     )
-    assert result == {'success': False, 'error': 'Branch #5 not found.'}
+    assert result == {'success': False, 'error': '门店 #5 不存在。'}
 
 
 async def test_naive_start_time_is_normalised_to_utc(monkeypatch):

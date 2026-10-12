@@ -31,7 +31,7 @@ export default function CustomerAuthModal({ isOpen, onClose, onAuthSuccess }) {
 
     try {
       if (isRegister) {
-        if (!name.trim()) throw new Error('Name is required');
+        if (!name.trim()) throw new Error('请填写姓名');
         const res = await api.customerRegister({
           name: name.trim(),
           email: email.trim(),
@@ -45,7 +45,7 @@ export default function CustomerAuthModal({ isOpen, onClose, onAuthSuccess }) {
       }
       onClose();
     } catch (err) {
-      setError(err.message || 'Authentication failed. Please try again.');
+      setError(err.message || '认证失败，请重试。');
     } finally {
       setLoading(false);
     }
@@ -56,7 +56,7 @@ export default function CustomerAuthModal({ isOpen, onClose, onAuthSuccess }) {
       <div className="modal-content" onClick={(e) => e.stopPropagation()}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
           <h2 style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--secondary)' }}>
-            {isRegister ? 'Create Customer Account' : 'Customer Sign In'}
+            {isRegister ? '注册顾客账号' : '顾客登录'}
           </h2>
           <button onClick={onClose} style={{ color: 'var(--text-muted)' }}>
             <X size={20} />
@@ -74,13 +74,13 @@ export default function CustomerAuthModal({ isOpen, onClose, onAuthSuccess }) {
           {isRegister && (
             <>
               <div>
-                <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>Full Name</label>
+                <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>姓名</label>
                 <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
                   <User size={16} style={{ position: 'absolute', left: 10, color: 'var(--text-muted)' }} />
                   <input
                     type="text"
                     required
-                    placeholder="Jane Doe"
+                    placeholder="张三"
                     value={name}
                     onChange={(e) => setName(e.target.value)}
                     style={{ width: '100%', padding: '9px 10px 9px 34px', borderRadius: '8px', border: '1px solid var(--surface-border)', outline: 'none' }}
@@ -89,12 +89,12 @@ export default function CustomerAuthModal({ isOpen, onClose, onAuthSuccess }) {
               </div>
 
               <div>
-                <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>Phone Number (Optional)</label>
+                <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>手机号（选填）</label>
                 <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
                   <Phone size={16} style={{ position: 'absolute', left: 10, color: 'var(--text-muted)' }} />
                   <input
                     type="tel"
-                    placeholder="+1 555 0192"
+                    placeholder="138 0000 0000"
                     value={phone}
                     onChange={(e) => setPhone(e.target.value)}
                     style={{ width: '100%', padding: '9px 10px 9px 34px', borderRadius: '8px', border: '1px solid var(--surface-border)', outline: 'none' }}
@@ -105,7 +105,7 @@ export default function CustomerAuthModal({ isOpen, onClose, onAuthSuccess }) {
           )}
 
           <div>
-            <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>Email Address</label>
+            <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>邮箱地址</label>
             <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
               <Mail size={16} style={{ position: 'absolute', left: 10, color: 'var(--text-muted)' }} />
               <input
@@ -120,7 +120,7 @@ export default function CustomerAuthModal({ isOpen, onClose, onAuthSuccess }) {
           </div>
 
           <div>
-            <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>Password</label>
+            <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>密码</label>
             <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
               <Lock size={16} style={{ position: 'absolute', left: 10, color: 'var(--text-muted)' }} />
               <input
@@ -140,12 +140,12 @@ export default function CustomerAuthModal({ isOpen, onClose, onAuthSuccess }) {
             className="btn-primary"
             style={{ justifyContent: 'center', marginTop: '0.5rem', width: '100%', opacity: loading ? 0.7 : 1 }}
           >
-            {loading ? 'Please wait...' : isRegister ? 'Create Account' : 'Sign In'}
+            {loading ? '请稍候…' : isRegister ? '注册账号' : '登录'}
           </button>
         </form>
 
         <div style={{ textAlign: 'center', marginTop: '1.25rem', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-          {isRegister ? 'Already have an account?' : "Don't have an account yet?"}{' '}
+          {isRegister ? '已有账号？' : '还没有账号？'}{' '}
           <button
             type="button"
             onClick={() => {
@@ -154,7 +154,7 @@ export default function CustomerAuthModal({ isOpen, onClose, onAuthSuccess }) {
             }}
             style={{ color: 'var(--primary)', fontWeight: 600 }}
           >
-            {isRegister ? 'Sign In' : 'Sign Up'}
+            {isRegister ? '去登录' : '去注册'}
           </button>
         </div>
       </div>

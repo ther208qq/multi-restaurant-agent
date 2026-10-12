@@ -132,7 +132,7 @@ async def test_cancel_clears_the_drafts(monkeypatch):
     assert out["active_flow"] == "none"
     assert out["order_draft"] is None
     assert out["reservation_draft"] is None
-    assert "cleared" in out["last_reply"]
+    assert "取消" in out["last_reply"]
 
 
 async def test_stale_draft_neither_steers_nor_is_reported(monkeypatch):

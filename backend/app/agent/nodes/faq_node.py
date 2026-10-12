@@ -16,15 +16,15 @@ async def faq_node(state: Dict[str, Any]) -> Dict[str, Any]:
     else:
         policies = faq_data.get("policies", {})
         reply = (
-            f"ℹ️ **Information for {faq_data['branch_name']}:**\n\n"
-            f"• 📍 **Address:** {faq_data['address']}\n"
-            f"• 📞 **Phone:** {faq_data['phone']}\n"
-            f"• ⏰ **Hours:** {faq_data['opening_hours']}\n"
-            f"• 🚗 **Parking:** {policies.get('parking', 'Available')}\n"
-            f"• 👔 **Dress Code:** {policies.get('dress_code', 'Casual')}\n"
-            f"• 💳 **Payment:** {policies.get('payment_methods', 'Cash or card at counter/delivery')}\n"
-            f"• 🛵 **Delivery:** {policies.get('delivery_radius', 'Standard local radius')}\n\n"
-            f"Would you like to browse the menu or reserve a table?"
+            f"ℹ️ **{faq_data['branch_name']} 门店信息：**\n\n"
+            f"• 📍 **地址：** {faq_data['address']}\n"
+            f"• 📞 **电话：** {faq_data['phone']}\n"
+            f"• ⏰ **营业时间：** {faq_data['opening_hours']}\n"
+            f"• 🚗 **停车：** {policies.get('parking', '提供停车位')}\n"
+            f"• 👔 **着装要求：** {policies.get('dress_code', '无特别要求（休闲着装）')}\n"
+            f"• 💳 **支付方式：** {policies.get('payment_methods', '柜台或送餐时以现金/银行卡支付')}\n"
+            f"• 🛵 **配送范围：** {policies.get('delivery_radius', '门店周边常规范围')}\n\n"
+            f"需要看看菜单，或者预订座位吗？"
         )
 
     return {

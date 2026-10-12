@@ -141,7 +141,7 @@ async def test_book_table_no_table_in_area_raises():
                 party_size=2,
                 seating_area="rooftop",
             )
-        assert "No tables currently available" in exc_info.value.message
+        assert "暂时没有可供" in exc_info.value.message
         assert isinstance(exc_info.value, ConflictError)
     finally:
         await _cleanup(branch_id)

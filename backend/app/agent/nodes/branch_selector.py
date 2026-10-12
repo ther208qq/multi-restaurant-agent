@@ -19,7 +19,7 @@ async def branch_selector_node(state: Dict[str, Any]) -> Dict[str, Any]:
     branches = await BranchService.list_active_branches()
 
     if not branches:
-        reply = "Sorry, no restaurant branches are currently active. Please check back later."
+        reply = "抱歉，目前没有营业中的门店，请稍后再试。"
         return {
             **state,
             "last_reply": reply,
@@ -39,7 +39,7 @@ async def branch_selector_node(state: Dict[str, Any]) -> Dict[str, Any]:
             break
 
     if selected_branch:
-        reply = f"Great! I've set your location to {selected_branch.name} ({selected_branch.address}). How can I help you today? You can browse our menu, place an order, book a table, or check order status."
+        reply = f"好的！已为您选择门店：{selected_branch.name}（{selected_branch.address}）。请问需要什么帮助？您可以浏览菜单、点餐、预订座位，或查询订单状态。"
         return {
             **state,
             "branch_id": selected_branch.id,
@@ -52,8 +52,8 @@ async def branch_selector_node(state: Dict[str, Any]) -> Dict[str, Any]:
     # If not resolved, prompt user with branch options
     branch_list_str = "\n".join([f"• {idx}) {b.name} — {b.address}" for idx, b in enumerate(branches, start=1)])
     prompt_reply = (
-        f"Welcome to our restaurant! Before we get started, which branch would you like to connect with?\n\n"
-        f"{branch_list_str}\n\nPlease reply with the branch name or number."
+        f"欢迎光临！开始之前，请选择您想要咨询的门店：\n\n"
+        f"{branch_list_str}\n\n请回复门店名称或编号。"
     )
     return {
         **state,

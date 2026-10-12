@@ -60,7 +60,7 @@ class BranchService:
         async with transactional_session(session) as s:
             branch = await BranchRepo.get_branch(s, branch_id)
             if branch is None:
-                raise NotFoundError("Branch not found.")
+                raise NotFoundError("门店不存在。")
             return await BranchRepo.update_branch(s, branch, values)
 
     @staticmethod
@@ -82,7 +82,7 @@ class BranchService:
         session: Optional[AsyncSession] = None,
     ) -> Table:
         if staff.branch_id and values.get("branch_id") != staff.branch_id:
-            raise ForbiddenError("Permission denied for this branch.")
+            raise ForbiddenError("您没有权限访问该门店。")
         async with transactional_session(session) as s:
             return await BranchRepo.create_table(s, values)
 
@@ -97,9 +97,9 @@ class BranchService:
         async with transactional_session(session) as s:
             table = await BranchRepo.get_table(s, table_id)
             if table is None:
-                raise NotFoundError("Table not found.")
+                raise NotFoundError("餐桌不存在。")
             if staff.branch_id and table.branch_id != staff.branch_id:
-                raise ForbiddenError("Permission denied for this branch.")
+                raise ForbiddenError("您没有权限访问该门店。")
             return await BranchRepo.update_table(s, table, values)
 
 

@@ -36,6 +36,14 @@ CANCEL_PATTERNS = (
     r"\bstart over\b",
     r"\breset\b",
     r"\babort\b",
+    # Chinese: cancel / forget it / start over / reset / "as if I never asked"
+    r"取消",
+    r"算了",
+    r"不用了",
+    r"不弄了",
+    r"重新开始",
+    r"重置",
+    r"当我没(?:说|问|提)",
 )
 
 

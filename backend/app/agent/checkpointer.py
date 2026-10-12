@@ -44,7 +44,7 @@ def get_checkpointer_dep(request: Request) -> AsyncPostgresSaver:
     if not checkpointer:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Chat checkpointer is not initialized.",
+            detail="聊天记忆组件尚未初始化。",
         )
     return checkpointer
 

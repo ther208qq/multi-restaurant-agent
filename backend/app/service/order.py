@@ -51,7 +51,7 @@ class OrderService:
         """Resolve items, prices and stock availability without writing."""
         if not items:
             raise ValidationError(
-                "Order cannot be empty. Please specify items to order."
+                "订单不能为空，请指定想要点的菜品。"
             )
         async with transactional_session(session) as s:
             lines: List[Dict[str, Any]] = []
@@ -62,7 +62,7 @@ class OrderService:
                 qty = req.get("quantity", 1)
                 menu_item = await MenuRepo.get_item(s, item_id)
                 if menu_item is None:
-                    raise NotFoundError(f"Item #{item_id} does not exist.")
+                    raise NotFoundError(f"菜品 #{item_id} 不存在。")
                 stock = await MenuRepo.get_stock(s, item_id, branch_id)
                 available = stock.stock_quantity if stock else 0
                 unit_price = _unit_price(
@@ -96,11 +96,11 @@ class OrderService:
         # Validate stock, atomically decrement, and persist the order.
         if not items:
             raise ValidationError(
-                "Order cannot be empty. Please specify items to order."
+                "订单不能为空，请指定想要点的菜品。"
             )
         if order_type == "delivery" and not delivery_address:
             raise ValidationError(
-                "Delivery orders require a delivery address. Please provide your address."
+                "外卖订单需要填写配送地址，请提供您的收货地址。"
             )
         async with transactional_session(session) as s:
             processed: List[Dict[str, Any]] = []
@@ -109,20 +109,20 @@ class OrderService:
                 item_id = req.get('menu_item_id')
                 qty = req.get('quantity', 1)
                 if qty <= 0:
-                    raise ValidationError(f'Quantity for item #{item_id} must be at least 1.')
+                    raise ValidationError(f'菜品 #{item_id} 的数量至少为 1。')
                 menu_item = await MenuRepo.get_item(s, item_id)
                 if menu_item is None:
-                    raise NotFoundError(f'Item #{item_id} does not exist.')
+                    raise NotFoundError(f'菜品 #{item_id} 不存在。')
                 if not menu_item.is_available:
-                    raise ConflictError(f"'{menu_item.name}' is currently unavailable.")
+                    raise ConflictError(f"「{menu_item.name}」当前不可供应。")
                 stock = await MenuRepo.get_stock_for_update(s, item_id, branch_id)
                 available = stock.stock_quantity if stock else 0
                 if available < qty:
-                    raise ConflictError(f'Insufficient stock for {menu_item.name}. Only {available} available (requested {qty}, short by {qty - available}).')
+                    raise ConflictError(f'「{menu_item.name}」库存不足，仅剩 {available} 份（需要 {qty} 份，缺 {qty - available} 份）。')
                 variants = req.get('selected_variants', []) or []
                 unit_price = _unit_price(menu_item.base_price, variants)
                 if not await MenuRepo.try_decrement_stock(s, item_id, branch_id, qty):
-                    raise ConflictError(f'Stock changed for {menu_item.name}. Please retry.')
+                    raise ConflictError(f'「{menu_item.name}」库存已发生变化，请重试。')
                 total_amount += unit_price * qty
                 processed.append({'menu_item_id': item_id, 'quantity': qty, 'unit_price': unit_price, 'selected_variants': variants, 'item_notes': req.get('item_notes')})
             order = await OrderRepo.create_order(
@@ -150,7 +150,7 @@ class OrderService:
                 s, order_id, with_items=True, with_customer=True, with_branch=True
             )
             if order is None:
-                raise NotFoundError(f'Order #{order_id} not found.')
+                raise NotFoundError(f'订单 #{order_id} 不存在。')
             return order
 
     @staticmethod
@@ -188,9 +188,9 @@ class OrderService:
                     failed.append(name)
             if failed:
                 unique = list(dict.fromkeys(failed))
-                raise ConflictError(f'Cannot un-cancel order: insufficient stock for item(s): {", ".join(unique)}.')
+                raise ConflictError(f'无法恢复已取消的订单：以下菜品库存不足：{", ".join(unique)}。')
         elif order.status == 'cancelled' and new_status != 'placed':
-            raise ValidationError("A cancelled order can only be un-cancelled to 'placed' status.")
+            raise ValidationError("已取消的订单只能恢复为「已下单」状态。")
 
     @staticmethod
     async def update_status(
@@ -209,11 +209,11 @@ class OrderService:
                 with_branch=True,
             )
             if order is None:
-                raise NotFoundError(f'Order #{order_id} not found.')
+                raise NotFoundError(f'订单 #{order_id} 不存在。')
             if staff is not None and staff.branch_id and order.branch_id != staff.branch_id:
-                raise ForbiddenError('You do not have permission to manage orders for this branch.')
+                raise ForbiddenError('您没有权限管理该门店的订单。')
             if new_status not in VALID_ORDER_STATUSES:
-                raise ValidationError(f'Invalid status {new_status}. Must be one of {list(VALID_ORDER_STATUSES)}.')
+                raise ValidationError(f'无效的状态 {new_status}，必须是以下之一：{list(VALID_ORDER_STATUSES)}。')
             if new_status == order.status:
                 return order
             await OrderService._apply_status_stock_effects(s, order, new_status)

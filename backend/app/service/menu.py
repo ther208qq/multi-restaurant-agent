@@ -94,6 +94,12 @@ def _menu_payload(branch, categories, stock_map):
             _menu_item_payload(item, stock_map.get(item.id, 0))
             for item in category.items
         ]
+        # A category with nothing in it is junk on a customer-facing menu -- a
+        # leftover test row, say. Skip it so a bare "[Name]" header never reaches
+        # the public API or the Agent prompt. (Staff still see it via
+        # MenuService.list_categories, which reads categories directly.)
+        if not items:
+            continue
         payload["categories"].append(
             {"id": category.id, "name": category.name, "items": items}
         )
@@ -107,7 +113,7 @@ class MenuService:
         async with transactional_session(session) as s:
             branch = await BranchRepo.get_branch(s, branch_id, active_only=True)
             if branch is None:
-                raise NotFoundError(f"Branch #{branch_id} not found or inactive.")
+                raise NotFoundError(f"门店 #{branch_id} 不存在或未营业。")
             categories = await MenuRepo.list_categories(s, branch_id)
             stock_map = await MenuRepo.stock_map(s, branch_id)
             return _menu_payload(branch, categories, stock_map)
@@ -132,7 +138,7 @@ class MenuService:
         session: Optional[AsyncSession] = None,
     ) -> MenuCategory:
         if staff.branch_id and branch_id != staff.branch_id:
-            raise ForbiddenError("Permission denied for this branch.")
+            raise ForbiddenError("您没有权限访问该门店。")
         async with transactional_session(session) as s:
             return await MenuRepo.create_category(s, branch_id, name)
 
@@ -153,9 +159,9 @@ class MenuService:
         async with transactional_session(session) as s:
             category = await MenuRepo.get_category(s, category_id)
             if category is None:
-                raise NotFoundError("Category not found.")
+                raise NotFoundError("菜品分类不存在。")
             if staff.branch_id and category.branch_id != staff.branch_id:
-                raise ForbiddenError("Permission denied for this branch.")
+                raise ForbiddenError("您没有权限访问该门店。")
             item = await MenuRepo.create_item(
                 s,
                 category_id=category_id,
@@ -189,9 +195,9 @@ class MenuService:
                 s, item_id, with_category=True, with_variants=True, with_stocks=True
             )
             if item is None:
-                raise NotFoundError("Item not found.")
+                raise NotFoundError("菜品不存在。")
             if staff.branch_id and item.category.branch_id != staff.branch_id:
-                raise ForbiddenError("Permission denied for this branch.")
+                raise ForbiddenError("您没有权限访问该门店。")
             updates = {
                 key: value
                 for key, value in values.items()
@@ -209,9 +215,9 @@ class MenuService:
         session: Optional[AsyncSession] = None,
     ) -> MenuItemStock:
         if staff.branch_id and branch_id != staff.branch_id:
-            raise ForbiddenError("Permission denied for this branch.")
+            raise ForbiddenError("您没有权限访问该门店。")
         if stock_quantity < 0:
-            raise ValidationError("Stock quantity cannot be negative.")
+            raise ValidationError("库存数量不能为负数。")
         async with transactional_session(session) as s:
             return await MenuRepo.set_stock(
                 s,

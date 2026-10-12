@@ -62,7 +62,8 @@ async def check_table_availability_and_book(
         "table_label": reservation.table.label,
         "seating_area": reservation.table.seating_area,
         "date": reservation.start_time.strftime("%Y-%m-%d"),
-        "time": reservation.start_time.strftime("%I:%M %p"),
+        # 24-hour clock: the reply is written for Chinese-speaking customers.
+        "time": reservation.start_time.strftime("%H:%M"),
         "party_size": party_size,
         "duration_minutes": duration_minutes,
     }

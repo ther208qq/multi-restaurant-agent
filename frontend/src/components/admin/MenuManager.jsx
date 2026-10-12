@@ -39,7 +39,7 @@ export default function MenuManager({ currentStaff, branches }) {
       });
       setStockEdits(initialStock);
     } catch (err) {
-      setError(err.message || 'Failed to load menu and stock.');
+      setError(err.message || '加载菜单与库存失败。');
     } finally {
       setLoading(false);
     }
@@ -70,7 +70,7 @@ export default function MenuManager({ currentStaff, branches }) {
       await api.updateItemStock(itemId, bId, qty);
       await fetchMenuData();
     } catch (err) {
-      alert(`Failed to update stock: ${err.message}`);
+      alert(`更新库存失败：${err.message}`);
     } finally {
       setSavingStockId(null);
     }
@@ -83,7 +83,7 @@ export default function MenuManager({ currentStaff, branches }) {
       });
       await fetchMenuData();
     } catch (err) {
-      alert(`Failed to update availability: ${err.message}`);
+      alert(`更新上架状态失败：${err.message}`);
     }
   };
 
@@ -100,7 +100,7 @@ export default function MenuManager({ currentStaff, branches }) {
       setIsAddingCategory(false);
       await fetchMenuData();
     } catch (err) {
-      alert(`Failed to create category: ${err.message}`);
+      alert(`创建分类失败：${err.message}`);
     }
   };
 
@@ -121,7 +121,7 @@ export default function MenuManager({ currentStaff, branches }) {
       setNewItemPrice('');
       await fetchMenuData();
     } catch (err) {
-      alert(`Failed to create item: ${err.message}`);
+      alert(`创建菜品失败：${err.message}`);
     }
   };
 
@@ -144,7 +144,7 @@ export default function MenuManager({ currentStaff, branches }) {
         <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
           {!currentStaff.branch_id && (
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <label style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-muted)' }}>Branch:</label>
+              <label style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-muted)' }}>门店：</label>
               <select
                 value={selectedBranchId}
                 onChange={(e) => setSelectedBranchId(Number(e.target.value))}
@@ -159,7 +159,7 @@ export default function MenuManager({ currentStaff, branches }) {
             </div>
           )}
           <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-            Inventory adjusts automatically on each AI order placement.
+            每次 AI 下单后库存会自动调整。
           </span>
         </div>
 
@@ -168,7 +168,7 @@ export default function MenuManager({ currentStaff, branches }) {
             onClick={() => setIsAddingCategory(true)}
             className="btn-secondary btn-sm"
           >
-            <Plus size={14} /> New Category
+            <Plus size={14} /> 新建分类
           </button>
           <button
             onClick={() => {
@@ -177,7 +177,7 @@ export default function MenuManager({ currentStaff, branches }) {
             }}
             className="btn-primary btn-sm"
           >
-            <Plus size={14} /> New Menu Item
+            <Plus size={14} /> 新建菜品
           </button>
           <button onClick={fetchMenuData} className="btn-outline btn-sm">
             <RefreshCw size={14} className={loading ? 'spin' : ''} />
@@ -216,18 +216,18 @@ export default function MenuManager({ currentStaff, branches }) {
               {cat.name}
             </h3>
             <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-              {cat.items?.length || 0} Items
+              {cat.items?.length || 0} 个菜品
             </span>
           </div>
 
           <table className="data-table" style={{ border: 'none', borderRadius: 0 }}>
             <thead>
               <tr>
-                <th>Item Name & Description</th>
-                <th>Price</th>
-                <th>Status</th>
-                <th>Branch Stock</th>
-                <th>Restock Action</th>
+                <th>菜品名称与描述</th>
+                <th>价格</th>
+                <th>状态</th>
+                <th>门店库存</th>
+                <th>补货操作</th>
               </tr>
             </thead>
             <tbody>
@@ -272,9 +272,9 @@ export default function MenuManager({ currentStaff, branches }) {
                         onClick={() => handleToggleAvailable(item)}
                         className={`badge ${item.is_available ? 'badge-success' : 'badge-danger'}`}
                         style={{ cursor: 'pointer' }}
-                        title="Click to toggle availability"
+                        title="点击切换上架状态"
                       >
-                        {item.is_available ? 'Active' : 'Disabled'}
+                        {item.is_available ? '在售' : '停售'}
                       </button>
                     </td>
 
@@ -306,7 +306,7 @@ export default function MenuManager({ currentStaff, branches }) {
                       </div>
                       {isOutOfStock && (
                         <div style={{ fontSize: '0.7rem', color: '#b91c1c', fontWeight: 600, marginTop: '2px' }}>
-                          Auto-marked Sold Out
+                          已自动标记为售罄
                         </div>
                       )}
                     </td>
@@ -331,9 +331,9 @@ export default function MenuManager({ currentStaff, branches }) {
                           onClick={() => handleSaveStock(item.id, 0)}
                           className="btn-outline btn-sm"
                           style={{ fontSize: '0.75rem', color: '#ef4444' }}
-                          title="Zero Out Stock"
+                          title="库存清零"
                         >
-                          Zero
+                          清零
                         </button>
                       </div>
                     </td>
@@ -349,16 +349,16 @@ export default function MenuManager({ currentStaff, branches }) {
       {isAddingCategory && (
         <div className="modal-overlay" onClick={() => setIsAddingCategory(false)}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-            <h3 style={{ fontSize: '1.1rem', fontWeight: 700, marginBottom: '1rem' }}>Create Menu Category</h3>
+            <h3 style={{ fontSize: '1.1rem', fontWeight: 700, marginBottom: '1rem' }}>创建菜单分类</h3>
             <form onSubmit={handleCreateCategory}>
               <div style={{ marginBottom: '1rem' }}>
                 <label style={{ fontSize: '0.85rem', fontWeight: 600, display: 'block', marginBottom: '4px' }}>
-                  Category Name
+                  分类名称
                 </label>
                 <input
                   type="text"
                   required
-                  placeholder="e.g. Seafood, Chef's Specials"
+                  placeholder="例如：海鲜、主厨精选"
                   value={newCatName}
                   onChange={(e) => setNewCatName(e.target.value)}
                   style={{ width: '100%', padding: '8px 10px', borderRadius: '6px', border: '1px solid var(--surface-border)' }}
@@ -366,10 +366,10 @@ export default function MenuManager({ currentStaff, branches }) {
               </div>
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
                 <button type="button" onClick={() => setIsAddingCategory(false)} className="btn-secondary btn-sm">
-                  Cancel
+                  取消
                 </button>
                 <button type="submit" className="btn-primary btn-sm">
-                  Create
+                  创建
                 </button>
               </div>
             </form>
@@ -381,10 +381,10 @@ export default function MenuManager({ currentStaff, branches }) {
       {isAddItemOpen && (
         <div className="modal-overlay" onClick={() => setIsAddItemOpen(false)}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-            <h3 style={{ fontSize: '1.1rem', fontWeight: 700, marginBottom: '1rem' }}>Add New Menu Item</h3>
+            <h3 style={{ fontSize: '1.1rem', fontWeight: 700, marginBottom: '1rem' }}>新增菜品</h3>
             <form onSubmit={handleCreateItem} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
               <div>
-                <label style={{ fontSize: '0.8rem', fontWeight: 600 }}>Category</label>
+                <label style={{ fontSize: '0.8rem', fontWeight: 600 }}>分类</label>
                 <select
                   value={newItemCatId}
                   onChange={(e) => setNewItemCatId(e.target.value)}
@@ -399,11 +399,11 @@ export default function MenuManager({ currentStaff, branches }) {
               </div>
 
               <div>
-                <label style={{ fontSize: '0.8rem', fontWeight: 600 }}>Item Name</label>
+                <label style={{ fontSize: '0.8rem', fontWeight: 600 }}>菜品名称</label>
                 <input
                   type="text"
                   required
-                  placeholder="e.g. Truffle Mushroom Risotto"
+                  placeholder="例如：松露蘑菇烩饭"
                   value={newItemName}
                   onChange={(e) => setNewItemName(e.target.value)}
                   style={{ width: '100%', padding: '8px 10px', borderRadius: '6px', border: '1px solid var(--surface-border)' }}
@@ -411,9 +411,9 @@ export default function MenuManager({ currentStaff, branches }) {
               </div>
 
               <div>
-                <label style={{ fontSize: '0.8rem', fontWeight: 600 }}>Description</label>
+                <label style={{ fontSize: '0.8rem', fontWeight: 600 }}>描述</label>
                 <textarea
-                  placeholder="Short description of ingredients..."
+                  placeholder="简短的原料说明…"
                   value={newItemDesc}
                   onChange={(e) => setNewItemDesc(e.target.value)}
                   style={{ width: '100%', padding: '8px 10px', borderRadius: '6px', border: '1px solid var(--surface-border)', resize: 'vertical' }}
@@ -422,7 +422,7 @@ export default function MenuManager({ currentStaff, branches }) {
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
                 <div>
-                  <label style={{ fontSize: '0.8rem', fontWeight: 600 }}>Base Price ($)</label>
+                  <label style={{ fontSize: '0.8rem', fontWeight: 600 }}>基础价格（$）</label>
                   <input
                     type="number"
                     step="0.01"
@@ -434,7 +434,7 @@ export default function MenuManager({ currentStaff, branches }) {
                   />
                 </div>
                 <div>
-                  <label style={{ fontSize: '0.8rem', fontWeight: 600 }}>Initial Stock</label>
+                  <label style={{ fontSize: '0.8rem', fontWeight: 600 }}>初始库存</label>
                   <input
                     type="number"
                     min="0"
@@ -448,10 +448,10 @@ export default function MenuManager({ currentStaff, branches }) {
 
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '8px' }}>
                 <button type="button" onClick={() => setIsAddItemOpen(false)} className="btn-secondary btn-sm">
-                  Cancel
+                  取消
                 </button>
                 <button type="submit" className="btn-primary btn-sm">
-                  Add Item
+                  添加菜品
                 </button>
               </div>
             </form>

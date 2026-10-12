@@ -19,9 +19,9 @@ from backend.app.exceptions import AuthenticationError, ValidationError
 from backend.app.models.user import Customer, StaffUser
 from backend.app.repo.user import UserRepo
 
-DUPLICATE_EMAIL_MESSAGE = "An account with this email address already exists."
-INVALID_CREDENTIALS_CUSTOMER_MESSAGE = "Invalid email or password."
-INVALID_CREDENTIALS_STAFF_MESSAGE = "Invalid username or password."
+DUPLICATE_EMAIL_MESSAGE = "该邮箱地址已被注册。"
+INVALID_CREDENTIALS_CUSTOMER_MESSAGE = "邮箱或密码不正确。"
+INVALID_CREDENTIALS_STAFF_MESSAGE = "用户名或密码不正确。"
 
 
 class AuthService:
@@ -85,7 +85,7 @@ class AuthService:
         async with transactional_session(session) as s:
             customer = await UserRepo.get_customer_by_id(s, customer_id)
             if customer is None:
-                raise AuthenticationError("Customer not found")
+                raise AuthenticationError("顾客账号不存在")
             return customer
 
     @staticmethod
@@ -98,7 +98,7 @@ class AuthService:
         async with transactional_session(session) as s:
             staff = await UserRepo.get_staff_by_id(s, staff_id)
             if staff is None:
-                raise AuthenticationError("Staff user not found")
+                raise AuthenticationError("员工账号不存在")
             return staff
 
 

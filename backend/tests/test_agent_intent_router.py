@@ -47,6 +47,44 @@ def test_keyword_routes(message, expected):
     assert keyword_route(message.lower()) == expected
 
 
+@pytest.mark.parametrize(
+    ("message", "expected"),
+    [
+        # Asking about an existing order/booking.
+        ("查一下我最近订单的状态", "status"),
+        ("我的订单到哪了", "status"),
+        ("我的预订确认了吗", "status"),
+        ("订单号是多少", "status"),
+        # Placing an order / browsing the menu (the frontend's quick chips).
+        ("菜单上有什么？", "order"),
+        ("点 2 份玛格丽特披萨", "order"),
+        ("我想点一份提拉米苏", "order"),
+        # Booking a table — note "7 点" (o'clock) must NOT be read as ordering.
+        ("今晚 7 点订一张 4 人桌", "reservation"),
+        ("帮我订个座位", "reservation"),
+        ("可以预订桌子吗", "reservation"),
+        # Branch FAQ.
+        ("你们在哪里？营业时间是？", "faq"),
+        ("你们几点开门", "faq"),
+        ("停车方便吗", "faq"),
+    ],
+)
+def test_chinese_keyword_routes(message, expected):
+    assert keyword_route(message) == expected
+
+
+def test_chinese_greeting_has_no_keyword_route():
+    """A plain greeting must fall through to the LLM, not a keyword route."""
+    assert keyword_route("你好") is None
+
+
+def test_chinese_oclock_is_not_an_order_keyword():
+    """Bare "点" means o'clock as well as order; only 点单/点餐/点菜/点个 count."""
+    assert keyword_route("现在几点了") is None
+    assert keyword_route("晚上 7 点见") is None
+    assert keyword_route("点单") == "order"
+
+
 def test_where_is_my_order_is_not_an_order_keyword_hit():
     """The exact regression: 'order' alone must not shadow the status phrase."""
     assert keyword_route("where is my order?") == "status"

@@ -77,7 +77,7 @@ async def test_register_duplicate_email_returns_400(async_client):
 
         dup = await async_client.post("/api/auth/register", json=payload)
         assert dup.status_code == 400
-        assert dup.json()["detail"] == "An account with this email address already exists."
+        assert dup.json()["detail"] == "该邮箱地址已被注册。"
     finally:
         await _cleanup([email])
 
@@ -92,7 +92,7 @@ async def test_login_wrong_password_returns_401(async_client):
             "/api/auth/login", json={"email": email, "password": "wrong"}
         )
         assert resp.status_code == 401
-        assert resp.json()["detail"] == "Invalid email or password."
+        assert resp.json()["detail"] == "邮箱或密码不正确。"
     finally:
         await _cleanup([email])
 
@@ -117,7 +117,7 @@ async def test_staff_login_wrong_password_returns_401(async_client):
         "/api/staff/login", json={"username": "admin", "password": "wrong"}
     )
     assert resp.status_code == 401
-    assert resp.json()["detail"] == "Invalid username or password."
+    assert resp.json()["detail"] == "用户名或密码不正确。"
 
 
 async def test_me_without_token_returns_401(async_client):
@@ -133,7 +133,7 @@ async def test_customer_me_unknown_id_returns_401(async_client):
         "/api/auth/me", headers={"Authorization": f"Bearer {token}"}
     )
     assert resp.status_code == 401
-    assert resp.json()["detail"] == "Customer not found"
+    assert resp.json()["detail"] == "顾客账号不存在"
 
 
 async def test_staff_me_unknown_id_returns_401(async_client):
@@ -144,4 +144,4 @@ async def test_staff_me_unknown_id_returns_401(async_client):
         "/api/staff/me", headers={"Authorization": f"Bearer {token}"}
     )
     assert resp.status_code == 401
-    assert resp.json()["detail"] == "Staff user not found"
+    assert resp.json()["detail"] == "员工账号不存在"

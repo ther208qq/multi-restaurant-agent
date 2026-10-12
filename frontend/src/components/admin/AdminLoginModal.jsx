@@ -20,7 +20,7 @@ export default function AdminLoginModal({ isOpen, onClose, onLoginSuccess }) {
       onLoginSuccess(res.user);
       onClose();
     } catch (err) {
-      setError(err.message || 'Invalid staff credentials.');
+      setError(err.message || '员工账号或密码错误。');
     } finally {
       setLoading(false);
     }
@@ -33,7 +33,7 @@ export default function AdminLoginModal({ isOpen, onClose, onLoginSuccess }) {
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <Shield size={20} style={{ color: 'var(--primary)' }} />
             <h2 style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--secondary)' }}>
-              Staff & Admin Portal
+              员工与管理员登录
             </h2>
           </div>
           <button onClick={onClose} style={{ color: 'var(--text-muted)' }}>
@@ -49,20 +49,20 @@ export default function AdminLoginModal({ isOpen, onClose, onLoginSuccess }) {
         )}
 
         <div style={{ background: '#f8fafc', padding: '10px', borderRadius: '8px', fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '1rem' }}>
-          <strong>Default Seed Accounts:</strong>
-          <div>• Admin: <code>admin</code> / <code>admin123</code></div>
-          <div>• Downtown Staff: <code>downtown_staff</code> / <code>staff123</code></div>
+          <strong>默认种子账号：</strong>
+          <div>• 管理员：<code>admin</code> / <code>admin123</code></div>
+          <div>• 市中心门店员工：<code>downtown_staff</code> / <code>staff123</code></div>
         </div>
 
         <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
           <div>
-            <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>Username</label>
+            <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>用户名</label>
             <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
               <User size={16} style={{ position: 'absolute', left: 10, color: 'var(--text-muted)' }} />
               <input
                 type="text"
                 required
-                placeholder="admin or downtown_staff"
+                placeholder="admin 或 downtown_staff"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
                 style={{ width: '100%', padding: '9px 10px 9px 34px', borderRadius: '8px', border: '1px solid var(--surface-border)', outline: 'none' }}
@@ -71,7 +71,7 @@ export default function AdminLoginModal({ isOpen, onClose, onLoginSuccess }) {
           </div>
 
           <div>
-            <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>Password</label>
+            <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>密码</label>
             <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
               <Lock size={16} style={{ position: 'absolute', left: 10, color: 'var(--text-muted)' }} />
               <input
@@ -91,7 +91,7 @@ export default function AdminLoginModal({ isOpen, onClose, onLoginSuccess }) {
             className="btn-primary"
             style={{ justifyContent: 'center', marginTop: '0.5rem', width: '100%', opacity: loading ? 0.7 : 1 }}
           >
-            {loading ? 'Authenticating...' : 'Sign In to Dashboard'}
+            {loading ? '正在验证…' : '登录后台'}
           </button>
         </form>
       </div>

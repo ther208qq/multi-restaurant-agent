@@ -148,13 +148,13 @@ export default function App() {
             <div style={{ textAlign: 'center', padding: '6rem 2rem' }}>
               <Shield size={48} style={{ color: 'var(--primary)', margin: '0 auto 1rem' }} />
               <h2 style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--secondary)', marginBottom: '0.5rem' }}>
-                Restricted Staff Portal
+                员工专区
               </h2>
               <p style={{ color: 'var(--text-muted)', marginBottom: '1.5rem' }}>
-                Please sign in with your staff or administrator credentials to manage restaurant operations.
+                请使用员工或管理员账号登录，以管理餐厅运营。
               </p>
               <button onClick={() => setIsStaffAuthOpen(true)} className="btn-primary">
-                Staff Sign In
+                员工登录
               </button>
             </div>
           )}

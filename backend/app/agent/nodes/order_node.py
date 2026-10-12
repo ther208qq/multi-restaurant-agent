@@ -6,6 +6,7 @@ from typing import Any, Dict
 from langchain_core.messages import AIMessage
 
 from backend.app.agent.flows import stamp
+from backend.app.agent.labels import order_type_label
 from backend.app.agent.llm import extract_json_from_text, llm_client
 from backend.app.agent.tools.menu_tools import format_menu_for_prompt, get_branch_menu_data
 from backend.app.agent.tools.order_tools import create_order_atomic
@@ -21,12 +22,28 @@ async def order_node(state: Dict[str, Any]) -> Dict[str, Any]:
     user_lower = user_msg.lower()
 
     # 1. Handle menu browsing request
-    if any(k in user_lower for k in ["what's on the menu", "show menu", "view menu", "see menu", "what do you have", "what pizzas"]):
+    if any(
+        k in user_lower
+        for k in [
+            "what's on the menu",
+            "show menu",
+            "view menu",
+            "see menu",
+            "what do you have",
+            "what pizzas",
+            # Chinese: the frontend's menu chip and its close paraphrases
+            "菜单上有什么",
+            "菜单里有什么",
+            "有什么菜",
+            "看看菜单",
+            "看下菜单",
+        ]
+    ):
         menu_text = await format_menu_for_prompt(branch_id)
         reply = (
-            f"Here is our current menu with real-time availability:\n\n"
+            f"以下是本门店当前的菜单与实时库存：\n\n"
             f"{menu_text}\n\n"
-            f"What would you like to order? (Please mention quantity, size/options, and order type: dine-in, takeaway, or delivery)"
+            f"请问您想点些什么？（请注明数量、规格，以及用餐方式：堂食、外带或外卖）"
         )
         return {
             **state,
@@ -38,7 +55,30 @@ async def order_node(state: Dict[str, Any]) -> Dict[str, Any]:
     # 2. Check if user is confirming an existing order draft
     order_draft = state.get("order_draft")
     if order_draft and order_draft.get("awaiting_confirmation"):
-        if any(w in user_lower for w in ["yes", "confirm", "place order", "go ahead", "sure", "yep", "ok", "okay"]):
+        if any(
+            w in user_lower
+            for w in [
+                "yes",
+                "confirm",
+                "place order",
+                "go ahead",
+                "sure",
+                "yep",
+                "ok",
+                "okay",
+                # Chinese confirmations ("是的"/"好的" rather than a bare "是",
+                # which also appears inside "不是")
+                "确认",
+                "下单",
+                "好的",
+                "可以",
+                "是的",
+                "没问题",
+                "就这些",
+                "对的",
+                "没错",
+            ]
+        ):
             # Execute atomic order creation + stock decrement
             result = await create_order_atomic(
                 customer_id=customer_id,
@@ -52,13 +92,13 @@ async def order_node(state: Dict[str, Any]) -> Dict[str, Any]:
             if result.get("success"):
                 order_id = result["order_id"]
                 total = result["total_amount"]
-                order_type = result["order_type"].replace("_", " ").title()
+                order_type = order_type_label(result["order_type"])
                 reply = (
-                    f"🎉 Excellent! Your order #{order_id} has been placed successfully!\n\n"
-                    f"• Order Type: {order_type}\n"
-                    f"• Total Amount: ${total:.2f}\n"
-                    f"• Status: Placed (Preparing shortly)\n\n"
-                    f"Payment will be handled at the counter or upon delivery (cash/card). Thank you for dining with us!"
+                    f"🎉 下单成功！您的订单 #{order_id} 已提交。\n\n"
+                    f"• 用餐方式：{order_type}\n"
+                    f"• 订单金额：${total:.2f}\n"
+                    f"• 订单状态：已下单（即将开始制作）\n\n"
+                    f"请在取餐或送餐时以现金或银行卡付款。感谢您的光临！"
                 )
                 return {
                     **state,
@@ -70,7 +110,7 @@ async def order_node(state: Dict[str, Any]) -> Dict[str, Any]:
                 }
             else:
                 # Stock error or validation error
-                err_reply = f"❌ Could not place order: {result.get('error')}"
+                err_reply = f"❌ 下单失败：{result.get('error')}"
                 return {
                     **state,
                     "active_flow": "order",
@@ -79,8 +119,26 @@ async def order_node(state: Dict[str, Any]) -> Dict[str, Any]:
                     "messages": [AIMessage(content=err_reply)],
                 }
 
-        elif any(w in user_lower for w in ["no", "cancel", "change", "stop", "abort", "wait"]):
-            cancel_reply = "Order cancelled. What else can I help you with?"
+        elif any(
+            w in user_lower
+            for w in [
+                "no",
+                "cancel",
+                "change",
+                "stop",
+                "abort",
+                "wait",
+                # Chinese: cancel / don't want it / forget it / switch items
+                "取消",
+                "不用了",
+                "不要了",
+                "算了",
+                "换个",
+                "改一下",
+                "再想想",
+            ]
+        ):
+            cancel_reply = "已取消本次下单。还需要其他帮助吗？"
             return {
                 **state,
                 "active_flow": "none",
@@ -93,13 +151,13 @@ async def order_node(state: Dict[str, Any]) -> Dict[str, Any]:
     menu_data = await get_branch_menu_data(branch_id)
     menu_summary = await format_menu_for_prompt(branch_id)
 
-    extraction_prompt = f"""You are an order extraction parser for a restaurant.
-Extract the customer's order from their message based on this real menu:
+    extraction_prompt = f"""你是餐厅的订单解析器。
+请依据以下真实菜单，从顾客的消息中提取他想要点的内容：
 {menu_summary}
 
-Customer message: "{user_msg}"
+顾客消息："{user_msg}"
 
-Return a JSON object with this exact schema:
+返回一个 JSON 对象，严格使用以下结构：
 {{
   "items": [
     {{
@@ -115,9 +173,9 @@ Return a JSON object with this exact schema:
   "special_notes": "<string or null>"
 }}
 
-If the message does not mention order_type, default to "dine_in".
-If no menu item is ordered, return {{"items": []}}.
-Output ONLY the JSON object.
+若消息中未提及 order_type，默认填 "dine_in"。
+若没有点到任何菜品，返回 {{"items": []}}。
+只输出这个 JSON 对象。
 """
     raw_llm = await llm_client.generate(prompt=user_msg, system_prompt=extraction_prompt)
     extracted = extract_json_from_text(raw_llm) or {}
@@ -143,9 +201,9 @@ Output ONLY the JSON object.
 
     if not items_to_order:
         reply = (
-            f"I didn't quite catch which items you'd like to order. Here is our menu:\n\n"
+            f"抱歉，我没能识别出您想点的菜品。以下是本店菜单：\n\n"
             f"{menu_summary}\n\n"
-            f"Please reply with the dish name and quantity (e.g., '2 Margherita Pizzas and 1 Lemonade, delivery to 123 Elm St')."
+            f"请回复菜品名称与数量（例如：「玛格丽特披萨 2 份、柠檬水 1 杯，外卖送到 XX 路 123 号」）。"
         )
         return {
             **state,
@@ -156,9 +214,15 @@ Output ONLY the JSON object.
 
     # Determine order type and address
     order_type = extracted.get("order_type", "dine_in")
-    if any(k in user_lower for k in ["deliver", "delivery", "home delivery"]):
+    if any(
+        k in user_lower
+        for k in ["deliver", "delivery", "home delivery", "外卖", "配送", "送餐", "送到"]
+    ):
         order_type = "delivery"
-    elif any(k in user_lower for k in ["takeaway", "take out", "takeout", "pick up", "pickup"]):
+    elif any(
+        k in user_lower
+        for k in ["takeaway", "take out", "takeout", "pick up", "pickup", "外带", "打包", "自取", "带走"]
+    ):
         order_type = "takeaway"
 
     delivery_address = extracted.get("delivery_address")
@@ -169,8 +233,8 @@ Output ONLY the JSON object.
             delivery_address = addr_match.group(1).strip()
         else:
             ask_addr_reply = (
-                f"I have your order ready, but for delivery I need your delivery address. "
-                f"Please reply with your address (e.g., 'Delivery to 456 Maple Ave, Apt 2B')."
+                f"您的订单已经准备好，但外卖需要您提供配送地址。"
+                f"请回复您的收货地址（例如：「送到枫叶路 456 号 2B 室」）。"
             )
             return {
                 **state,
@@ -205,21 +269,21 @@ Output ONLY the JSON object.
     for line in preview["items"]:
         if line["shortfall"]:
             if line["available_quantity"] == 0:
-                stock_errors.append(f"• '{line['name']}' is currently out of stock.")
+                stock_errors.append(f"• 「{line['name']}」目前已售罄。")
             else:
                 stock_errors.append(
-                    f"• '{line['name']}': only {line['available_quantity']} available "
-                    f"(requested {line['qty']}, short by {line['shortfall']})."
+                    f"• 「{line['name']}」仅剩 {line['available_quantity']} 份"
+                    f"（需要 {line['qty']} 份，缺 {line['shortfall']} 份）。"
                 )
             continue
-        summary_lines.append(f"  • {line['qty']}x {line['name']} — ${line['subtotal']:.2f}")
+        summary_lines.append(f"  • {line['qty']} × {line['name']} — ${line['subtotal']:.2f}")
     total_est = preview["total_amount"]
 
     if stock_errors:
         err_msg = (
-            f"⚠️ Some items in your order have insufficient stock at this branch:\n\n"
+            f"⚠️ 以下菜品在本门店库存不足：\n\n"
             + "\n".join(stock_errors)
-            + "\n\nPlease adjust the quantities or choose an alternative item from our menu."
+            + "\n\n请调整数量，或从菜单中选择其他菜品。"
         )
         return {
             **state,
@@ -229,15 +293,15 @@ Output ONLY the JSON object.
         }
 
     # 5. Present Order Summary and Ask for Explicit Confirmation
-    order_type_display = order_type.replace("_", " ").title()
+    order_type_display = order_type_label(order_type)
     summary_text = (
-        f"📝 **Order Summary ({state.get('branch_name', 'Branch')}):**\n\n"
+        f"📝 **订单确认（{state.get('branch_name', '本门店')}）：**\n\n"
         + "\n".join(summary_lines)
-        + f"\n\n**Order Type:** {order_type_display}\n"
-        + (f"**Delivery Address:** {delivery_address}\n" if delivery_address else "")
-        + f"**Estimated Total:** ${total_est:.2f}\n"
-        + f"*(Payment is made at pickup/delivery via cash or card)*\n\n"
-        + f"👉 **Please reply 'Yes' or 'Confirm' to place your order, or 'No' to make changes.**"
+        + f"\n\n**用餐方式：** {order_type_display}\n"
+        + (f"**配送地址：** {delivery_address}\n" if delivery_address else "")
+        + f"**预计金额：** ${total_est:.2f}\n"
+        + f"*(请在取餐或送餐时以现金或银行卡支付)*\n\n"
+        + f"👉 **请回复「确认」提交订单，或回复「取消」进行修改。**"
     )
 
     return {

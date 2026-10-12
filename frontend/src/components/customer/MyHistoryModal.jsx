@@ -21,7 +21,7 @@ export default function MyHistoryModal({ isOpen, onClose }) {
         setReservations(data);
       }
     } catch (err) {
-      setError(err.message || 'Failed to fetch your history.');
+      setError(err.message || '获取历史记录失败。');
     } finally {
       setLoading(false);
     }
@@ -35,19 +35,35 @@ export default function MyHistoryModal({ isOpen, onClose }) {
 
   if (!isOpen) return null;
 
+  const STATUS_LABELS = {
+    confirmed: '已确认',
+    ready: '已就绪',
+    delivered: '已送达',
+    preparing: '制作中',
+    pending: '待处理',
+    cancelled: '已取消',
+  };
+
+  const ORDER_TYPE_LABELS = {
+    dine_in: '堂食',
+    takeaway: '外带',
+    delivery: '外卖',
+  };
+
   const getStatusBadge = (status) => {
+    const label = STATUS_LABELS[status] || status;
     switch (status) {
       case 'confirmed':
       case 'ready':
       case 'delivered':
-        return <span className="badge badge-success">{status.toUpperCase()}</span>;
+        return <span className="badge badge-success">{label}</span>;
       case 'preparing':
       case 'pending':
-        return <span className="badge badge-warning">{status.toUpperCase()}</span>;
+        return <span className="badge badge-warning">{label}</span>;
       case 'cancelled':
-        return <span className="badge badge-danger">{status.toUpperCase()}</span>;
+        return <span className="badge badge-danger">{label}</span>;
       default:
-        return <span className="badge badge-info">{status.toUpperCase()}</span>;
+        return <span className="badge badge-info">{label}</span>;
     }
   };
 
@@ -66,21 +82,21 @@ export default function MyHistoryModal({ isOpen, onClose }) {
               onClick={() => setTab('orders')}
               style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
             >
-              <ShoppingBag size={16} /> My Orders
+              <ShoppingBag size={16} /> 我的订单
             </button>
             <button
               className={`nav-tab-btn ${tab === 'reservations' ? 'active' : ''}`}
               onClick={() => setTab('reservations')}
               style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
             >
-              <Calendar size={16} /> My Reservations
+              <Calendar size={16} /> 我的预订
             </button>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <button
               onClick={fetchData}
               disabled={loading}
-              title="Refresh"
+              title="刷新"
               style={{ color: 'var(--text-muted)' }}
             >
               <RefreshCw size={16} className={loading ? 'spin' : ''} />
@@ -102,13 +118,13 @@ export default function MyHistoryModal({ isOpen, onClose }) {
         <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '10px' }}>
           {loading ? (
             <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>
-              Loading your {tab}...
+              正在加载{tab === 'orders' ? '订单' : '预订'}…
             </div>
           ) : tab === 'orders' ? (
             orders.length === 0 ? (
               <div style={{ textAlign: 'center', padding: '2.5rem', color: 'var(--text-muted)' }}>
                 <ShoppingBag size={36} style={{ margin: '0 auto 8px', opacity: 0.5 }} />
-                <p>No orders placed yet. Ask our AI Assistant to place your first order!</p>
+                <p>还没有订单。快请 AI 助手帮您下第一单吧！</p>
               </div>
             ) : (
               orders.map((o) => (
@@ -127,10 +143,10 @@ export default function MyHistoryModal({ isOpen, onClose }) {
                         Order #{o.id}
                       </span>
                       <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                        • {o.branch_name || `Branch #${o.branch_id}`}
+                        • {o.branch_name || `门店 #${o.branch_id}`}
                       </span>
                       <span style={{ fontSize: '0.75rem', background: '#f1f5f9', padding: '2px 6px', borderRadius: '4px' }}>
-                        {o.order_type.toUpperCase()}
+                        {ORDER_TYPE_LABELS[o.order_type] || o.order_type}
                       </span>
                     </div>
                     {getStatusBadge(o.status)}
@@ -140,7 +156,7 @@ export default function MyHistoryModal({ isOpen, onClose }) {
                     {o.items && o.items.map((item, idx) => (
                       <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0' }}>
                         <span>
-                          {item.quantity}x Item #{item.menu_item_id}
+                          {item.quantity}× 菜品 #{item.menu_item_id}
                           {item.item_notes ? ` (${item.item_notes})` : ''}
                         </span>
                         <span style={{ fontWeight: 500 }}>
@@ -165,7 +181,7 @@ export default function MyHistoryModal({ isOpen, onClose }) {
                       {new Date(o.created_at).toLocaleString()}
                     </span>
                     <span style={{ fontWeight: 700, color: 'var(--primary)', fontSize: '0.95rem' }}>
-                      Total: ${Number(o.total_amount).toFixed(2)}
+                      合计：${Number(o.total_amount).toFixed(2)}
                     </span>
                   </div>
                 </div>
@@ -175,7 +191,7 @@ export default function MyHistoryModal({ isOpen, onClose }) {
             reservations.length === 0 ? (
               <div style={{ textAlign: 'center', padding: '2.5rem', color: 'var(--text-muted)' }}>
                 <Calendar size={36} style={{ margin: '0 auto 8px', opacity: 0.5 }} />
-                <p>No reservations booked yet. Chat with AI to reserve a table!</p>
+                <p>还没有预订。与 AI 聊聊即可预订座位！</p>
               </div>
             ) : (
               reservations.map((r) => (
@@ -191,10 +207,10 @@ export default function MyHistoryModal({ isOpen, onClose }) {
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                       <span style={{ fontWeight: 700, fontSize: '0.95rem', color: 'var(--secondary)' }}>
-                        Reservation #{r.id}
+                        预订 #{r.id}
                       </span>
                       <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                        • {r.branch_name || `Branch #${r.branch_id}`}
+                        • {r.branch_name || `门店 #${r.branch_id}`}
                       </span>
                     </div>
                     {getStatusBadge(r.status)}
@@ -202,16 +218,16 @@ export default function MyHistoryModal({ isOpen, onClose }) {
 
                   <div style={{ fontSize: '0.85rem', color: 'var(--text-main)', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px', margin: '6px 0' }}>
                     <div>
-                      <strong>Party Size:</strong> {r.party_size} Guests
+                      <strong>用餐人数：</strong> {r.party_size} 人
                     </div>
                     <div>
-                      <strong>Area:</strong> {r.seating_area_preference || 'Standard'}
+                      <strong>区域：</strong> {r.seating_area_preference || '标准区'}
                     </div>
                     <div>
-                      <strong>Table Assigned:</strong> {r.table_label || (r.table_id ? `Table #${r.table_id}` : 'Pending assignment')}
+                      <strong>桌位：</strong> {r.table_label || (r.table_id ? `餐桌 #${r.table_id}` : '待分配')}
                     </div>
                     <div>
-                      <strong>Duration:</strong> {r.duration_minutes} Mins
+                      <strong>时长：</strong> {r.duration_minutes} 分钟
                     </div>
                   </div>
 
@@ -232,7 +248,7 @@ export default function MyHistoryModal({ isOpen, onClose }) {
                     </span>
                     {r.status === 'confirmed' && (
                       <span style={{ color: '#15803d', display: 'flex', alignItems: 'center', gap: '4px', fontWeight: 600 }}>
-                        <CheckCircle2 size={13} /> Auto-Confirmed
+                        <CheckCircle2 size={13} /> 已自动确认
                       </span>
                     )}
                   </div>

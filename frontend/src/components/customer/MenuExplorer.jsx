@@ -8,7 +8,7 @@ export default function MenuExplorer({ menuData, onAskAiToOrder }) {
     return (
       <div className="sidebar-card" style={{ textAlign: 'center', padding: '2rem 1rem', color: 'var(--text-muted)' }}>
         <Utensils size={32} style={{ margin: '0 auto 8px', opacity: 0.5 }} />
-        <p>Loading restaurant menu...</p>
+        <p>正在加载菜单…</p>
       </div>
     );
   }
@@ -31,10 +31,10 @@ export default function MenuExplorer({ menuData, onAskAiToOrder }) {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <Utensils size={18} style={{ color: 'var(--primary)' }} />
-          <h3 style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--secondary)' }}>Live Menu & Stock</h3>
+          <h3 style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--secondary)' }}>实时菜单与库存</h3>
         </div>
         <span className="badge badge-neutral" style={{ fontSize: '0.7rem' }}>
-          {allItems.length} Items
+          {allItems.length} 个菜品
         </span>
       </div>
 
@@ -58,7 +58,7 @@ export default function MenuExplorer({ menuData, onAskAiToOrder }) {
           }}
           onClick={() => setActiveCategory('ALL')}
         >
-          All
+          全部
         </button>
         {categories.map((c) => (
           <button
@@ -80,7 +80,7 @@ export default function MenuExplorer({ menuData, onAskAiToOrder }) {
       <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '8px', paddingRight: '2px' }}>
         {displayedItems.length === 0 ? (
           <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', textAlign: 'center', margin: '1rem 0' }}>
-            No items in this category.
+            该分类暂无菜品。
           </p>
         ) : (
           displayedItems.map((item) => {
@@ -145,7 +145,7 @@ export default function MenuExplorer({ menuData, onAskAiToOrder }) {
                 >
                   {isAvailable ? (
                     <span style={{ fontSize: '0.75rem', color: '#15803d', fontWeight: 600 }}>
-                      ✓ In Stock ({item.stock_quantity})
+                      ✓ 有货（{item.stock_quantity}）
                     </span>
                   ) : (
                     <span
@@ -158,7 +158,7 @@ export default function MenuExplorer({ menuData, onAskAiToOrder }) {
                         gap: '4px',
                       }}
                     >
-                      <AlertTriangle size={12} /> Sold Out
+                      <AlertTriangle size={12} /> 已售罄
                     </span>
                   )}
 
@@ -173,9 +173,9 @@ export default function MenuExplorer({ menuData, onAskAiToOrder }) {
                         gap: '4px',
                         fontWeight: 600,
                       }}
-                      onClick={() => onAskAiToOrder(`I want to order 1 ${item.name}`)}
+                      onClick={() => onAskAiToOrder(`我想点 1 份 ${item.name}`)}
                     >
-                      <MessageSquarePlus size={12} /> Ask AI to Order
+                      <MessageSquarePlus size={12} /> 让 AI 下单
                     </button>
                   )}
                 </div>

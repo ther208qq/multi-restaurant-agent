@@ -15,27 +15,27 @@ from backend.app.repo.branch import BranchRepo
 # Per-branch dining policies (lookup table keyed by branch id).
 _BRANCH_POLICIES: Dict[int, Dict[str, str]] = {
     1: {
-        "parking": "Valet parking available at the front entrance; street parking available on Main St.",
-        "dress_code": "Smart casual. No beachwear.",
-        "cancellation_policy": "Reservations can be modified or cancelled up to 1 hour before dining.",
-        "payment_methods": "Cash, credit/debit cards accepted at the counter or upon delivery.",
-        "delivery_radius": "Delivers within 7 miles of Downtown Central City.",
+        "parking": "正门提供代客泊车服务；主街沿线也可停车。",
+        "dress_code": "商务休闲装，请勿穿着沙滩装。",
+        "cancellation_policy": "可在用餐前 1 小时之前修改或取消预订。",
+        "payment_methods": "柜台结账或送餐时可使用现金、信用卡/借记卡支付。",
+        "delivery_radius": "市中心店周边 7 英里内可配送。",
     },
     2: {
-        "parking": "Dedicated customer parking lot behind the building.",
-        "dress_code": "Casual to elegant.",
-        "cancellation_policy": "Reservations can be modified or cancelled up to 1 hour before dining.",
-        "payment_methods": "Cash, credit/debit cards accepted at the counter or upon delivery.",
-        "delivery_radius": "Delivers within 10 miles of North Hills.",
+        "parking": "店后有专属顾客停车场。",
+        "dress_code": "休闲至正装均可。",
+        "cancellation_policy": "可在用餐前 1 小时之前修改或取消预订。",
+        "payment_methods": "柜台结账或送餐时可使用现金、信用卡/借记卡支付。",
+        "delivery_radius": "北山店周边 10 英里内可配送。",
     },
 }
 
 _DEFAULT_POLICY: Dict[str, str] = {
-    "parking": "Street parking available nearby.",
-    "dress_code": "Casual.",
-    "cancellation_policy": "Free cancellation up to 1 hour prior.",
-    "payment_methods": "Cash or card at counter/delivery.",
-    "delivery_radius": "Standard city delivery radius.",
+    "parking": "门店附近有路边停车位。",
+    "dress_code": "休闲着装即可。",
+    "cancellation_policy": "用餐前 1 小时之前可免费取消。",
+    "payment_methods": "柜台结账或送餐时可使用现金或银行卡支付。",
+    "delivery_radius": "门店周边常规配送范围。",
 }
 
 
@@ -47,7 +47,7 @@ class FAQService:
         async with transactional_session(session) as s:
             branch = await BranchRepo.get_branch(s, branch_id)
             if branch is None:
-                raise NotFoundError(f"Branch #{branch_id} not found.")
+                raise NotFoundError(f"门店 #{branch_id} 不存在。")
             return {
                 "branch_id": branch.id,
                 "branch_name": branch.name,

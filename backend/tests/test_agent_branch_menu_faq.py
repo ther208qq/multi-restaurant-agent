@@ -32,13 +32,14 @@ async def test_menu_tool_missing_branch_returns_error():
 
 async def test_format_menu_for_prompt_renders_text():
     text = await format_menu_for_prompt(1)
-    assert text.startswith("--- Menu for")
+    assert text.startswith("--- ")
+    assert "菜单" in text
     assert "#" in text  # item ids rendered
 
 
 async def test_format_menu_for_prompt_missing_branch_returns_message():
     text = await format_menu_for_prompt(999999)
-    assert "not found" in text
+    assert "不存在" in text
 
 
 async def test_format_menu_for_prompt_skips_empty_categories(monkeypatch):
@@ -101,7 +102,7 @@ async def test_branch_selector_short_circuits_when_branch_set():
 
 
 async def test_branch_selector_resolves_by_name():
-    state = {"messages": [HumanMessage(content="I want Downtown Bistro please")]}
+    state = {"messages": [HumanMessage(content="我想去市中心小馆")]}
     out = await branch_selector_node(state)
     assert out["branch_id"] == 1
     assert out["branch_name"]
@@ -111,4 +112,4 @@ async def test_branch_selector_prompts_when_unresolved():
     state = {"messages": [HumanMessage(content="hello there")]}
     out = await branch_selector_node(state)
     assert out["active_flow"] == "branch_select"
-    assert "which branch" in out["last_reply"].lower()
+    assert "门店" in out["last_reply"]

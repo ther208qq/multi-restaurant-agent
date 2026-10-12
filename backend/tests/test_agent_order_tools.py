@@ -95,7 +95,7 @@ async def test_insufficient_stock_shape_without_placing(monkeypatch):
     assert result["shortfall"] == 3
     assert result["available_quantity"] == 2
     assert result["shortfall_item"] == "Pizza"
-    assert "Insufficient stock" in result["error"]
+    assert "库存不足" in result["error"]
     assert "place" not in calls
 
 
@@ -149,7 +149,7 @@ async def test_place_conflict_becomes_dict(monkeypatch):
     _patch(
         monkeypatch,
         preview=_preview(),
-        place_exc=ConflictError("'Pizza' is currently unavailable."),
+        place_exc=ConflictError("「Pizza」当前不可供应。"),
     )
     result = await create_order_atomic(
         customer_id=1,
@@ -158,5 +158,5 @@ async def test_place_conflict_becomes_dict(monkeypatch):
         items=[{"menu_item_id": 1, "quantity": 1}],
     )
     assert result["success"] is False
-    assert "currently unavailable" in result["error"]
+    assert "当前不可供应" in result["error"]
 

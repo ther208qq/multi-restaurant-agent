@@ -25,7 +25,7 @@ export default function BranchTableManager({ currentStaff, branches, onRefreshBr
       const data = await api.getStaffTables(bId);
       setTables(data);
     } catch (err) {
-      setError(err.message || 'Failed to load branch tables.');
+      setError(err.message || '加载门店餐桌失败。');
     } finally {
       setLoading(false);
     }
@@ -42,7 +42,7 @@ export default function BranchTableManager({ currentStaff, branches, onRefreshBr
       });
       await fetchTables();
     } catch (err) {
-      alert(`Failed to update table: ${err.message}`);
+      alert(`更新餐桌失败：${err.message}`);
     }
   };
 
@@ -64,8 +64,14 @@ export default function BranchTableManager({ currentStaff, branches, onRefreshBr
       await fetchTables();
       if (onRefreshBranches) onRefreshBranches();
     } catch (err) {
-      alert(`Failed to create table: ${err.message}`);
+      alert(`创建餐桌失败：${err.message}`);
     }
+  };
+
+  const AREA_LABELS = {
+    indoor: '室内',
+    outdoor: '户外露台',
+    rooftop: '天台花园',
   };
 
   const selectedBranch = branches.find((b) => b.id === selectedBranchId);
@@ -89,7 +95,7 @@ export default function BranchTableManager({ currentStaff, branches, onRefreshBr
         <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
           {!currentStaff.branch_id && (
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <label style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-muted)' }}>Branch:</label>
+              <label style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-muted)' }}>门店：</label>
               <select
                 value={selectedBranchId}
                 onChange={(e) => setSelectedBranchId(Number(e.target.value))}
@@ -113,7 +119,7 @@ export default function BranchTableManager({ currentStaff, branches, onRefreshBr
 
         <div style={{ display: 'flex', gap: '8px' }}>
           <button onClick={() => setIsAddTableOpen(true)} className="btn-primary btn-sm">
-            <Plus size={14} /> Add Table
+            <Plus size={14} /> 添加餐桌
           </button>
           <button onClick={fetchTables} className="btn-outline btn-sm">
             <RefreshCw size={14} className={loading ? 'spin' : ''} />
@@ -151,24 +157,24 @@ export default function BranchTableManager({ currentStaff, branches, onRefreshBr
                 onClick={() => handleToggleTable(t)}
                 className={`badge ${t.is_active ? 'badge-success' : 'badge-danger'}`}
                 style={{ cursor: 'pointer' }}
-                title="Click to toggle table availability"
+                title="点击切换餐桌可用状态"
               >
-                {t.is_active ? 'Active' : 'Offline'}
+                {t.is_active ? '可用' : '停用'}
               </button>
             </div>
 
             <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', display: 'flex', flexDirection: 'column', gap: '2px' }}>
               <div>
-                <strong>Seating Area:</strong>{' '}
-                <span style={{ textTransform: 'capitalize' }}>{t.seating_area}</span>
+                <strong>用餐区：</strong>{' '}
+                <span>{AREA_LABELS[t.seating_area] || t.seating_area}</span>
               </div>
               <div>
-                <strong>Capacity:</strong> {t.min_capacity} - {t.capacity} Persons
+                <strong>容纳人数：</strong> {t.min_capacity} - {t.capacity} 人
               </div>
             </div>
 
             <div style={{ marginTop: 'auto', paddingTop: '8px', borderTop: '1px solid #f1f5f9', fontSize: '0.75rem', color: 'var(--accent)', fontWeight: 600 }}>
-              ✓ Guarded by PostgreSQL GIST Exclusion
+              ✓ 由 PostgreSQL GIST 排他约束保护
             </div>
           </div>
         ))}
@@ -178,14 +184,14 @@ export default function BranchTableManager({ currentStaff, branches, onRefreshBr
       {isAddTableOpen && (
         <div className="modal-overlay" onClick={() => setIsAddTableOpen(false)}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-            <h3 style={{ fontSize: '1.1rem', fontWeight: 700, marginBottom: '1rem' }}>Add Table to Branch</h3>
+            <h3 style={{ fontSize: '1.1rem', fontWeight: 700, marginBottom: '1rem' }}>为门店添加餐桌</h3>
             <form onSubmit={handleCreateTable} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
               <div>
-                <label style={{ fontSize: '0.8rem', fontWeight: 600 }}>Table Label</label>
+                <label style={{ fontSize: '0.8rem', fontWeight: 600 }}>餐桌编号</label>
                 <input
                   type="text"
                   required
-                  placeholder="e.g. T12 or Booth-4"
+                  placeholder="例如：T12 或 卡座-4"
                   value={newTableLabel}
                   onChange={(e) => setNewTableLabel(e.target.value)}
                   style={{ width: '100%', padding: '8px 10px', borderRadius: '6px', border: '1px solid var(--surface-border)' }}
@@ -193,21 +199,21 @@ export default function BranchTableManager({ currentStaff, branches, onRefreshBr
               </div>
 
               <div>
-                <label style={{ fontSize: '0.8rem', fontWeight: 600 }}>Seating Area</label>
+                <label style={{ fontSize: '0.8rem', fontWeight: 600 }}>用餐区</label>
                 <select
                   value={newTableArea}
                   onChange={(e) => setNewTableArea(e.target.value)}
                   style={{ width: '100%', padding: '8px 10px', borderRadius: '6px', border: '1px solid var(--surface-border)' }}
                 >
-                  <option value="indoor">Indoor</option>
-                  <option value="outdoor">Outdoor Patio</option>
-                  <option value="rooftop">Rooftop Garden</option>
+                  <option value="indoor">室内</option>
+                  <option value="outdoor">户外露台</option>
+                  <option value="rooftop">天台花园</option>
                 </select>
               </div>
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
                 <div>
-                  <label style={{ fontSize: '0.8rem', fontWeight: 600 }}>Max Capacity</label>
+                  <label style={{ fontSize: '0.8rem', fontWeight: 600 }}>最大容量</label>
                   <input
                     type="number"
                     min="1"
@@ -218,7 +224,7 @@ export default function BranchTableManager({ currentStaff, branches, onRefreshBr
                   />
                 </div>
                 <div>
-                  <label style={{ fontSize: '0.8rem', fontWeight: 600 }}>Min Capacity</label>
+                  <label style={{ fontSize: '0.8rem', fontWeight: 600 }}>最小容量</label>
                   <input
                     type="number"
                     min="1"
@@ -232,10 +238,10 @@ export default function BranchTableManager({ currentStaff, branches, onRefreshBr
 
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '8px' }}>
                 <button type="button" onClick={() => setIsAddTableOpen(false)} className="btn-secondary btn-sm">
-                  Cancel
+                  取消
                 </button>
                 <button type="submit" className="btn-primary btn-sm">
-                  Add Table
+                  添加餐桌
                 </button>
               </div>
             </form>

@@ -31,7 +31,7 @@ async def chat_with_agent(
     if not user_text:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Message cannot be empty.",
+            detail="消息内容不能为空。",
         )
 
     # Determine branch

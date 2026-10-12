@@ -32,14 +32,14 @@ export default function Navbar({
           onClick={() => onSwitchView('customer')}
           style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
         >
-          <Sparkles size={15} /> Customer Dining & Chat
+          <Sparkles size={15} /> 顾客点餐与咨询
         </button>
         <button
           className={`nav-tab-btn ${currentView === 'admin' ? 'active' : ''}`}
           onClick={() => onSwitchView('admin')}
           style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
         >
-          <Shield size={15} /> Staff Portal
+          <Shield size={15} /> 员工后台
         </button>
       </div>
 
@@ -53,7 +53,7 @@ export default function Navbar({
                 className="btn-outline btn-sm"
                 style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
               >
-                <ShoppingBag size={14} /> My Activity
+                <ShoppingBag size={14} /> 我的记录
               </button>
               <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem' }}>
                 <span className="badge badge-neutral" style={{ padding: '4px 8px' }}>
@@ -62,7 +62,7 @@ export default function Navbar({
                 </span>
                 <button
                   onClick={onCustomerLogout}
-                  title="Sign out"
+                  title="退出登录"
                   style={{ color: 'var(--text-muted)', padding: '4px' }}
                 >
                   <LogOut size={16} />
@@ -71,13 +71,13 @@ export default function Navbar({
             </div>
           ) : (
             <button onClick={onOpenCustomerAuth} className="btn-primary btn-sm">
-              <User size={14} /> Sign In / Register
+              <User size={14} /> 登录 / 注册
             </button>
           )
         ) : (
           !currentStaff && (
             <button onClick={onOpenStaffAuth} className="btn-primary btn-sm">
-              <Shield size={14} /> Staff Sign In
+              <Shield size={14} /> 员工登录
             </button>
           )
         )}

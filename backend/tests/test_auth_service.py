@@ -50,9 +50,7 @@ async def test_register_customer_duplicate_email_raises():
         await AuthService.register_customer(name="__as", email=email, password="x")
         with pytest.raises(ValidationError) as exc_info:
             await AuthService.register_customer(name="__as", email=email, password="y")
-        assert exc_info.value.message == (
-            "An account with this email address already exists."
-        )
+        assert exc_info.value.message == "该邮箱地址已被注册。"
     finally:
         await _cleanup([email])
 
@@ -76,7 +74,7 @@ async def test_authenticate_customer_wrong_password_raises():
         await AuthService.register_customer(name="__as", email=email, password="pw")
         with pytest.raises(AuthenticationError) as exc_info:
             await AuthService.authenticate_customer(email, "nope")
-        assert exc_info.value.message == "Invalid email or password."
+        assert exc_info.value.message == "邮箱或密码不正确。"
     finally:
         await _cleanup([email])
 
@@ -84,13 +82,13 @@ async def test_authenticate_customer_wrong_password_raises():
 async def test_authenticate_customer_unknown_email_raises():
     with pytest.raises(AuthenticationError) as exc_info:
         await AuthService.authenticate_customer(_email(), "pw")
-    assert exc_info.value.message == "Invalid email or password."
+    assert exc_info.value.message == "邮箱或密码不正确。"
 
 
 async def test_get_customer_not_found_raises():
     with pytest.raises(AuthenticationError) as exc_info:
         await AuthService.get_customer(999999999)
-    assert exc_info.value.message == "Customer not found"
+    assert exc_info.value.message == "顾客账号不存在"
 
 
 async def test_get_customer_returns_registered_account():
@@ -114,19 +112,19 @@ async def test_authenticate_staff_success():
 async def test_authenticate_staff_wrong_password_raises():
     with pytest.raises(AuthenticationError) as exc_info:
         await AuthService.authenticate_staff("admin", "nope")
-    assert exc_info.value.message == "Invalid username or password."
+    assert exc_info.value.message == "用户名或密码不正确。"
 
 
 async def test_authenticate_staff_unknown_username_raises():
     with pytest.raises(AuthenticationError) as exc_info:
         await AuthService.authenticate_staff("__no_such_staff__", "x")
-    assert exc_info.value.message == "Invalid username or password."
+    assert exc_info.value.message == "用户名或密码不正确。"
 
 
 async def test_get_staff_not_found_raises():
     with pytest.raises(AuthenticationError) as exc_info:
         await AuthService.get_staff(999999999)
-    assert exc_info.value.message == "Staff user not found"
+    assert exc_info.value.message == "员工账号不存在"
 
 
 async def test_get_staff_returns_seeded_admin():

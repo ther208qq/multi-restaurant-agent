@@ -159,8 +159,8 @@ async def test_status_node_reports_activity():
         )
         result = await status_node({"customer_id": customer_id, "branch_id": 1})
         reply = result["last_reply"]
-        assert f"Order #{order.id}" in reply
-        assert f"Booking #{reservation.id}" in reply
+        assert f"订单 #{order.id}" in reply
+        assert f"预订 #{reservation.id}" in reply
         assert result["active_flow"] == "none"
         assert result["messages"]
     finally:
@@ -171,6 +171,6 @@ async def test_status_node_empty_state():
     customer_id = await _make_customer()
     try:
         result = await status_node({"customer_id": customer_id, "branch_id": 1})
-        assert "don't have any active orders or reservations" in result["last_reply"]
+        assert "没有进行中的订单或预订" in result["last_reply"]
     finally:
         await _cleanup(customer_id=customer_id)

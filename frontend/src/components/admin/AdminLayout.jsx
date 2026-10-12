@@ -8,6 +8,8 @@ import { ShoppingBag, Calendar, Utensils, MapPin, LogOut, Shield } from 'lucide-
 export default function AdminLayout({ currentStaff, branches, onLogout, onRefreshBranches }) {
   const [activeTab, setActiveTab] = useState('orders'); // 'orders' | 'reservations' | 'menu' | 'branches'
 
+  const ROLE_LABELS = { admin: '管理员', staff: '员工' };
+
   return (
     <div className="admin-container">
       {/* Staff Header */}
@@ -15,17 +17,17 @@ export default function AdminLayout({ currentStaff, branches, onLogout, onRefres
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <span style={{ fontSize: '1.4rem', fontWeight: 800, color: 'var(--secondary)' }}>
-              Staff Management Portal
+              员工管理后台
             </span>
             <span className="badge badge-info" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-              <Shield size={12} /> {currentStaff.role.toUpperCase()}
+              <Shield size={12} /> {ROLE_LABELS[currentStaff.role] || currentStaff.role}
             </span>
           </div>
           <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginTop: '2px' }}>
-            Logged in as <strong>{currentStaff.username}</strong>
+            登录身份：<strong>{currentStaff.username}</strong>
             {currentStaff.branch_id
-              ? ` • Branch ID #${currentStaff.branch_id}`
-              : ' • All Branches (Superadmin)'}
+              ? ` • 门店 #${currentStaff.branch_id}`
+              : ' • 全部门店（超级管理员）'}
           </p>
         </div>
 
@@ -34,7 +36,7 @@ export default function AdminLayout({ currentStaff, branches, onLogout, onRefres
           className="btn-outline btn-sm"
           style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#ef4444' }}
         >
-          <LogOut size={14} /> Staff Sign Out
+          <LogOut size={14} /> 员工退出
         </button>
       </div>
 
@@ -45,28 +47,28 @@ export default function AdminLayout({ currentStaff, branches, onLogout, onRefres
           onClick={() => setActiveTab('orders')}
           style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
         >
-          <ShoppingBag size={16} /> Live Orders
+          <ShoppingBag size={16} /> 实时订单
         </button>
         <button
           className={`admin-tab ${activeTab === 'reservations' ? 'active' : ''}`}
           onClick={() => setActiveTab('reservations')}
           style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
         >
-          <Calendar size={16} /> Table Reservations
+          <Calendar size={16} /> 餐桌预订
         </button>
         <button
           className={`admin-tab ${activeTab === 'menu' ? 'active' : ''}`}
           onClick={() => setActiveTab('menu')}
           style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
         >
-          <Utensils size={16} /> Menu & Inventory Stock
+          <Utensils size={16} /> 菜单与库存
         </button>
         <button
           className={`admin-tab ${activeTab === 'branches' ? 'active' : ''}`}
           onClick={() => setActiveTab('branches')}
           style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
         >
-          <MapPin size={16} /> Branches & Tables
+          <MapPin size={16} /> 门店与餐桌
         </button>
       </div>
 

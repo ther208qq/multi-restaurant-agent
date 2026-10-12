@@ -108,7 +108,7 @@ async def test_order_node_estimates_total_via_service(monkeypatch):
         draft = result['order_draft']
         assert draft['awaiting_confirmation'] is True
         assert draft['total_estimated'] == 20.0
-        assert 'Estimated Total' in result['last_reply']
+        assert '预计金额' in result['last_reply']
     finally:
         await _cleanup(cat_id)
 
@@ -118,8 +118,8 @@ async def test_order_node_reports_shortfall(monkeypatch):
     try:
         _stub_generate(monkeypatch, {'items': [{'menu_item_id': item_id, 'name': 'x', 'quantity': 3, 'selected_variants': [], 'item_notes': None}], 'order_type': 'dine_in'})
         result = await order_node(_order_state())
-        assert 'insufficient stock' in result['last_reply']
-        assert 'only 1 available' in result['last_reply']
+        assert '库存不足' in result['last_reply']
+        assert '仅剩 1 份' in result['last_reply']
         assert result.get('order_draft') is None
     finally:
         await _cleanup(cat_id)

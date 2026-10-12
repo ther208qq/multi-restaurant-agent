@@ -8,6 +8,11 @@ its own and no database-session handling.
 from typing import Any, Dict
 from langchain_core.messages import AIMessage
 
+from backend.app.agent.labels import (
+    ORDER_STATUS_LABELS,
+    RESERVATION_STATUS_LABELS,
+    order_type_label,
+)
 from backend.app.service.order import OrderService
 from backend.app.service.reservation import ReservationService
 
@@ -30,43 +35,29 @@ async def status_node(state: Dict[str, Any]) -> Dict[str, Any]:
     sections = []
 
     if orders:
-        order_lines = ["📦 **Your Recent Orders:**"]
+        order_lines = ["📦 **您的近期订单：**"]
         for o in orders:
-            status_emoji = {
-                "placed": "⏳ Placed",
-                "preparing": "🍳 Preparing",
-                "ready": "🔔 Ready for Pickup/Delivery",
-                "delivered": "✅ Delivered/Completed",
-                "cancelled": "❌ Cancelled",
-            }.get(o.status, o.status.title())
-
+            status_label = ORDER_STATUS_LABELS.get(o.status, o.status)
             order_lines.append(
-                f"• Order #{o.id} ({o.order_type.replace('_', ' ').title()}): {status_emoji} — ${o.total_amount:.2f} ({len(o.items)} item(s))"
+                f"• 订单 #{o.id}（{order_type_label(o.order_type)}）：{status_label} — ${o.total_amount:.2f}（{len(o.items)} 项）"
             )
         sections.append("\n".join(order_lines))
 
     if reservations:
-        res_lines = ["🍽️ **Your Reservations:**"]
+        res_lines = ["🍽️ **您的预订：**"]
         for r in reservations:
-            status_emoji = {
-                "confirmed": "✅ Confirmed",
-                "pending": "⏳ Pending",
-                "seated": "🍷 Seated",
-                "completed": "🏁 Completed",
-                "cancelled": "❌ Cancelled",
-            }.get(r.status, r.status.title())
-
-            table_info = f"Table {r.table.label}" if r.table else "Table assignment pending"
-            date_time = r.start_time.strftime("%b %d, %Y at %I:%M %p")
+            status_label = RESERVATION_STATUS_LABELS.get(r.status, r.status)
+            table_info = f"餐桌 {r.table.label}" if r.table else "尚未分配餐桌"
+            date_time = r.start_time.strftime("%Y-%m-%d %H:%M")
             res_lines.append(
-                f"• Booking #{r.id}: {status_emoji} on {date_time} for {r.party_size} guests ({table_info})"
+                f"• 预订 #{r.id}：{status_label}，{date_time}，{r.party_size} 位（{table_info}）"
             )
         sections.append("\n".join(res_lines))
 
     if not sections:
-        reply = "You don't have any active orders or reservations at this branch yet. Would you like to check out the menu or book a table?"
+        reply = "您在本门店暂时没有进行中的订单或预订。需要查看菜单或预订座位吗？"
     else:
-        reply = "\n\n".join(sections) + "\n\nCan I help you with anything else?"
+        reply = "\n\n".join(sections) + "\n\n还需要其他帮助吗？"
 
     return {
         **state,

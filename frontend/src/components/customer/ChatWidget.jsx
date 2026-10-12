@@ -13,7 +13,7 @@ export default function ChatWidget({
     {
       id: 1,
       sender: 'assistant',
-      text: "Hello! Welcome to GourmetBistro. I'm your AI Dining Assistant powered by DeepSeek R1. How can I help you today? You can ask for our menu, place food orders, or book a table with instant auto-confirmation!",
+      text: "您好！欢迎光临 GourmetBistro。我是由 DeepSeek R1 驱动的 AI 点餐助手。今天有什么可以帮您？您可以查看菜单、点餐，或预订座位（自动即时确认）！",
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     },
   ]);
@@ -23,11 +23,11 @@ export default function ChatWidget({
   const chatMessagesRef = useRef(null);
 
   const quickChips = [
-    "What's on the menu?",
-    "Book a table for 4 tonight at 7 PM",
-    "Order 2 Margherita Pizzas",
-    "Where are you located & what are your hours?",
-    "Check status of my latest order",
+    "菜单上有什么？",
+    "今晚 7 点订一张 4 人桌",
+    "点 2 份玛格丽特披萨",
+    "你们在哪里？营业时间是？",
+    "查一下我最近订单的状态",
   ];
 
   // Auto-scroll messages container to bottom without scrolling window
@@ -87,13 +87,13 @@ export default function ChatWidget({
 
       setMessages((prev) => [...prev, botMessage]);
     } catch (err) {
-      setError(err.message || 'Error communicating with AI agent.');
+      setError(err.message || '与 AI 助手通信失败。');
       setMessages((prev) => [
         ...prev,
         {
           id: Date.now() + 1,
           sender: 'assistant',
-          text: `⚠️ Error: ${err.message || 'Unable to connect to the agent. Please try again.'}`,
+          text: `⚠️ 出错：${err.message || '无法连接 AI 助手，请重试。'}`,
           isError: true,
           timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         },
@@ -108,7 +108,7 @@ export default function ChatWidget({
       {
         id: 1,
         sender: 'assistant',
-        text: `Welcome! I'm your AI concierge for ${selectedBranch?.name || 'GourmetBistro'}. How can I assist you with dining, menu items, or reservations?`,
+        text: `欢迎！我是 ${selectedBranch?.name || 'GourmetBistro'} 的 AI 助手，可以协助您点餐、查看菜品或预订座位。`,
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       },
     ]);
@@ -136,12 +136,12 @@ export default function ChatWidget({
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
               <span style={{ fontWeight: 700, fontSize: '0.95rem', color: 'var(--secondary)' }}>
-                BistroAI Agent
+                BistroAI 助手
               </span>
-              <span className="status-dot" title="Ollama DeepSeek R1 Connected" />
+              <span className="status-dot" title="已连接 Ollama DeepSeek R1" />
             </div>
             <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-              {selectedBranch ? `${selectedBranch.name} • DeepSeek R1 8B` : 'Select a branch'}
+              {selectedBranch ? `${selectedBranch.name} • DeepSeek R1 8B` : '请选择门店'}
             </div>
           </div>
         </div>
@@ -151,9 +151,9 @@ export default function ChatWidget({
             onClick={handleResetChat}
             className="btn-outline btn-sm"
             style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.75rem' }}
-            title="Start new conversation"
+            title="开始新对话"
           >
-            <RefreshCw size={13} /> Reset
+            <RefreshCw size={13} /> 重置
           </button>
         </div>
       </div>
@@ -176,7 +176,7 @@ export default function ChatWidget({
                 <User size={14} style={{ color: 'white' }} />
               )}
               <span style={{ fontSize: '0.75rem', fontWeight: 600, opacity: 0.8 }}>
-                {m.sender === 'assistant' ? 'AI Assistant' : currentCustomer?.name || 'You'}
+                {m.sender === 'assistant' ? 'AI 助手' : currentCustomer?.name || '你'}
               </span>
               <span style={{ fontSize: '0.7rem', opacity: 0.6, marginLeft: 'auto' }}>
                 {m.timestamp}
@@ -198,7 +198,7 @@ export default function ChatWidget({
                   display: 'inline-block',
                 }}
               >
-                🎉 Order #{m.order_id} Confirmed
+                🎉 Order #{m.order_id} 已确认
               </div>
             )}
 
@@ -215,7 +215,7 @@ export default function ChatWidget({
                   display: 'inline-block',
                 }}
               >
-                ✅ Reservation #{m.reservation_id} Auto-Confirmed
+                ✅ Reservation #{m.reservation_id} 已自动确认
               </div>
             )}
           </div>
@@ -225,7 +225,7 @@ export default function ChatWidget({
           <div className="message-bubble assistant" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <Sparkles size={16} className="spin" style={{ color: 'var(--primary)' }} />
             <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-              DeepSeek R1 is reasoning and checking restaurant availability...
+              DeepSeek R1 正在推理并检查餐厅可订情况…
             </span>
           </div>
         )}
@@ -261,10 +261,10 @@ export default function ChatWidget({
             }}
           >
             <span style={{ color: '#9a3412', fontWeight: 500 }}>
-              Please sign in to chat with the AI assistant, place orders, and book tables.
+              请先登录，即可与 AI 助手对话、下单和预订座位。
             </span>
             <button onClick={onRequireAuth} className="btn-primary btn-sm">
-              Sign In / Register
+              登录 / 注册
             </button>
           </div>
         ) : (
@@ -277,7 +277,7 @@ export default function ChatWidget({
           >
             <input
               type="text"
-              placeholder={`Ask about ${selectedBranch?.name || 'our restaurant'}, order items, or reserve a table...`}
+              placeholder={`咨询 ${selectedBranch?.name || '本餐厅'}、点餐，或预订座位…`}
               value={inputText}
               onChange={(e) => setInputText(e.target.value)}
               disabled={loading}

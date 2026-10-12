@@ -112,6 +112,22 @@ async def test_get_branch_menu_missing_raises():
         await MenuService.get_branch_menu(999999)
 
 
+async def test_get_branch_menu_hides_empty_categories():
+    """An empty category must not reach the public API / Agent (but staff still see it)."""
+    category = await MenuService.create_category(_staff(None), 1, "__svc_empty_cat")
+    try:
+        menu = await MenuService.get_branch_menu(1)
+        assert all(c["id"] != category.id for c in menu["categories"])
+
+        staff_categories = await MenuService.list_categories(_staff(None), 1)
+        assert any(c.id == category.id for c in staff_categories)
+    finally:
+        async with transactional_session() as session:
+            await session.execute(
+                delete(MenuCategory).where(MenuCategory.id == category.id)
+            )
+
+
 async def test_update_stock_negative_raises_validation():
     with pytest.raises(ValidationError):
         await MenuService.update_stock(_staff(None), 1, 1, -1)

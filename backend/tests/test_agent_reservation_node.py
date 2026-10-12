@@ -41,7 +41,7 @@ async def test_extraction_prompt_carries_todays_date(monkeypatch):
     await reservation_node(_state("I'd like a table"))
 
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    assert f"Current date reference: {today}." in captured["system_prompt"]
+    assert f"当前参考日期：{today}。" in captured["system_prompt"]
     # The stale development constant must never come back.
     assert "2026-09-16" not in captured["system_prompt"]
 

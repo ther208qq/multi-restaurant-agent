@@ -162,5 +162,5 @@ async def test_graceful_handling_when_table_taken():
     )
 
     assert result["success"] is False
-    assert "No tables currently available" in result["error"]
+    assert "暂时没有可供" in result["error"]
     assert result.get("alternatives_available") is True

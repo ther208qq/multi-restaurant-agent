@@ -37,7 +37,7 @@ def decode_access_token(token: str) -> dict:
     except jwt.PyJWTError:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Could not validate credentials",
+            detail="无法验证凭据",
             headers={"WWW-Authenticate": "Bearer"},
         )
 
@@ -50,7 +50,7 @@ async def get_current_customer(
     if not auth:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Authentication token required",
+            detail="需要身份验证令牌",
         )
     payload = decode_access_token(auth.credentials)
     user_type = payload.get("type")
@@ -59,7 +59,7 @@ async def get_current_customer(
     if user_type != "customer" or not customer_id:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid customer token",
+            detail="顾客令牌无效",
         )
 
     return await AuthService.get_customer(int(customer_id), session=db)
@@ -73,7 +73,7 @@ async def get_current_staff(
     if not auth:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Staff authentication token required",
+            detail="需要员工身份验证令牌",
         )
     payload = decode_access_token(auth.credentials)
     user_type = payload.get("type")
@@ -82,7 +82,7 @@ async def get_current_staff(
     if user_type != "staff" or not staff_id:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid staff token",
+            detail="员工令牌无效",
         )
 
     return await AuthService.get_staff(int(staff_id), session=db)
@@ -93,7 +93,7 @@ def require_admin(staff: StaffUser = Depends(get_current_staff)) -> StaffUser:
     if staff.role != "admin":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin privileges required",
+            detail="需要管理员权限",
         )
     return staff
 

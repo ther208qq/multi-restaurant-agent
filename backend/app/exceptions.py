@@ -11,7 +11,7 @@ from __future__ import annotations
 class DomainError(Exception):
     """Base class for all business/domain errors."""
 
-    def __init__(self, message: str = "A business error occurred.") -> None:
+    def __init__(self, message: str = "发生了一个业务错误，请稍后重试。") -> None:
         self.message = message
         super().__init__(message)
 

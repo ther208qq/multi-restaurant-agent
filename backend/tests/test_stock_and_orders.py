@@ -15,15 +15,15 @@ from backend.app.models.menu import MenuItem, MenuItemStock
 async def test_order_rejection_when_exceeding_stock():
     """Verify that ordering more than available stock fails with an informative error."""
     async with AsyncSessionLocal() as session:
-        # Find Truffle Mushroom Pizza at branch 1 (seeded with stock = 2)
+        # Find 松露蘑菇披萨 at branch 1 (seeded with stock = 2)
         stmt = (
             select(MenuItemStock, MenuItem)
             .join(MenuItem, MenuItemStock.menu_item_id == MenuItem.id)
-            .where(MenuItem.name == "Truffle Mushroom Pizza", MenuItemStock.branch_id == 1)
+            .where(MenuItem.name == "松露蘑菇披萨", MenuItemStock.branch_id == 1)
         )
         res = await session.execute(stmt)
         row = res.first()
-        assert row is not None, "Seeded Truffle Mushroom Pizza should exist"
+        assert row is not None, "Seeded 松露蘑菇披萨 should exist"
         stock_entry, menu_item = row
 
         # Set stock explicitly to 2 for deterministic test
@@ -43,8 +43,8 @@ async def test_order_rejection_when_exceeding_stock():
     )
 
     assert result["success"] is False
-    assert "Insufficient stock" in result["error"]
-    assert "Only 2 available" in result["error"]
+    assert "库存不足" in result["error"]
+    assert "仅剩 2 份" in result["error"]
     assert result.get("shortfall") == 3
 
 
@@ -52,11 +52,11 @@ async def test_order_rejection_when_exceeding_stock():
 async def test_atomic_stock_decrement():
     """Verify stock decrements correctly and atomically on successful order."""
     async with AsyncSessionLocal() as session:
-        # Find Margherita Pizza at branch 1
+        # Find 玛格丽特披萨 at branch 1
         stmt = (
             select(MenuItemStock, MenuItem)
             .join(MenuItem, MenuItemStock.menu_item_id == MenuItem.id)
-            .where(MenuItem.name == "Margherita Pizza", MenuItemStock.branch_id == 1)
+            .where(MenuItem.name == "玛格丽特披萨", MenuItemStock.branch_id == 1)
         )
         res = await session.execute(stmt)
         stock_entry, menu_item = res.first()
@@ -100,7 +100,7 @@ async def test_concurrent_orders_for_last_unit():
         stmt = (
             select(MenuItemStock, MenuItem)
             .join(MenuItem, MenuItemStock.menu_item_id == MenuItem.id)
-            .where(MenuItem.name == "Molten Chocolate Lava Cake", MenuItemStock.branch_id == 1)
+            .where(MenuItem.name == "熔岩巧克力蛋糕", MenuItemStock.branch_id == 1)
         )
         res = await session.execute(stmt)
         stock_entry, menu_item = res.first()
@@ -133,7 +133,7 @@ async def test_concurrent_orders_for_last_unit():
 
     assert len(successes) == 1, "Exactly one order must succeed"
     assert len(failures) == 1, "The second concurrent order must fail"
-    assert "stock" in failures[0]["error"].lower()
+    assert "库存不足" in failures[0]["error"]
 
     # Verify final stock is 0
     async with AsyncSessionLocal() as session:
@@ -151,7 +151,7 @@ async def test_auto_unavailable_at_zero_stock():
         stmt = (
             select(MenuItemStock, MenuItem)
             .join(MenuItem, MenuItemStock.menu_item_id == MenuItem.id)
-            .where(MenuItem.name == "Molten Chocolate Lava Cake", MenuItemStock.branch_id == 1)
+            .where(MenuItem.name == "熔岩巧克力蛋糕", MenuItemStock.branch_id == 1)
         )
         res = await session.execute(stmt)
         stock_entry, menu_item = res.first()
@@ -184,7 +184,7 @@ async def test_order_cancel_and_uncancel_stock_reversal(async_client, staff_auth
         stmt = (
             select(MenuItemStock, MenuItem)
             .join(MenuItem, MenuItemStock.menu_item_id == MenuItem.id)
-            .where(MenuItem.name == "Margherita Pizza", MenuItemStock.branch_id == 1)
+            .where(MenuItem.name == "玛格丽特披萨", MenuItemStock.branch_id == 1)
         )
         res = await session.execute(stmt)
         stock_entry, menu_item = res.first()
@@ -254,7 +254,7 @@ async def test_uncancel_conflict_when_stock_insufficient(async_client, staff_aut
         stmt = (
             select(MenuItemStock, MenuItem)
             .join(MenuItem, MenuItemStock.menu_item_id == MenuItem.id)
-            .where(MenuItem.name == "Truffle Mushroom Pizza", MenuItemStock.branch_id == 1)
+            .where(MenuItem.name == "松露蘑菇披萨", MenuItemStock.branch_id == 1)
         )
         res = await session.execute(stmt)
         stock_entry, menu_item = res.first()

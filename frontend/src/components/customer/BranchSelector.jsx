@@ -8,7 +8,7 @@ export default function BranchSelector({ branches, selectedBranchId, onSelectBra
     <div className="sidebar-card">
       <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '0.75rem' }}>
         <MapPin size={18} style={{ color: 'var(--primary)' }} />
-        <h3 style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--secondary)' }}>Select Branch</h3>
+        <h3 style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--secondary)' }}>选择门店</h3>
       </div>
 
       <div className="branch-select-box">
@@ -18,7 +18,7 @@ export default function BranchSelector({ branches, selectedBranchId, onSelectBra
         >
           {branches.map((b) => (
             <option key={b.id} value={b.id}>
-              {b.name} — {b.city || 'Downtown'}
+              {b.name} — {b.city || '市中心'}
             </option>
           ))}
         </select>
@@ -28,7 +28,7 @@ export default function BranchSelector({ branches, selectedBranchId, onSelectBra
         <div style={{ marginTop: '1rem', display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '0.85rem' }}>
           <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', color: 'var(--text-muted)' }}>
             <MapPin size={14} style={{ marginTop: '3px', flexShrink: 0 }} />
-            <span>{selectedBranch.address || 'Address not specified'}</span>
+            <span>{selectedBranch.address || '未填写地址'}</span>
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-muted)' }}>
@@ -60,7 +60,7 @@ export default function BranchSelector({ branches, selectedBranchId, onSelectBra
             >
               <Info size={14} style={{ marginTop: '2px', flexShrink: 0 }} />
               <div>
-                <strong>Branch Policy:</strong> {branchFaq.dining_policy}
+                <strong>门店政策：</strong> {branchFaq.dining_policy}
               </div>
             </div>
           )}
@@ -77,7 +77,7 @@ export default function BranchSelector({ branches, selectedBranchId, onSelectBra
             }}
           >
             <ShieldCheck size={14} />
-            <span>Auto-Confirm Reservations Active</span>
+            <span>预订自动确认已开启</span>
           </div>
         </div>
       )}

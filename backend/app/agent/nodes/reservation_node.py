@@ -7,6 +7,7 @@ from typing import Any, Dict
 from langchain_core.messages import AIMessage
 
 from backend.app.agent.flows import stamp
+from backend.app.agent.labels import seating_area_label
 from backend.app.agent.llm import extract_json_from_text, llm_client
 from backend.app.agent.tools.table_tools import check_table_availability_and_book
 
@@ -24,21 +25,21 @@ async def reservation_node(state: Dict[str, Any]) -> Dict[str, Any]:
     # reference date below, so it must be *today*: a hardcoded reference silently
     # books every relative-date reservation in the past.
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    sys_prompt = f"""You are a restaurant reservation detail extractor.
-Current date reference: {today}.
-Extract the booking details from the customer message:
+    sys_prompt = f"""你是餐厅的预订信息提取器。
+当前参考日期：{today}。
+请从顾客的消息中提取预订信息：
 "{user_msg}"
 
-Output a JSON object with this exact schema:
+输出一个 JSON 对象，严格使用以下结构：
 {{
   "party_size": <int or null>,
   "date": "<YYYY-MM-DD or null>",
-  "time": "<HH:MM in 24-hour format or null>",
+  "time": "<24 小时制的 HH:MM，或 null>",
   "seating_area": "indoor" | "outdoor" | "rooftop" | "any",
   "notes": "<string or null>"
 }}
 
-Output ONLY valid JSON.
+只输出合法的 JSON。
 """
     raw_llm = await llm_client.generate(prompt=user_msg, system_prompt=sys_prompt)
     extracted = extract_json_from_text(raw_llm) or {}
@@ -54,6 +55,9 @@ Output ONLY valid JSON.
     # Regex heuristic fallbacks for common phrases
     if not party_size:
         size_match = re.search(r"(?:table\s+for|party\s+of|for)\s+(\d+)", user_lower)
+        if not size_match:
+            # Chinese: "4 人桌" / "订 4 位" / "一共 4 个"
+            size_match = re.search(r"([0-9]+) *[人位名]", user_lower)
         if size_match:
             party_size = int(size_match.group(1))
 
@@ -69,33 +73,56 @@ Output ONLY valid JSON.
                 hr = 0
             time_str = f"{hr:02d}:{mn:02d}"
 
+    if not time_str:
+        # Chinese times the am/pm regex cannot see: "晚上 7 点", "7 点半", "19:30".
+        cn_time = re.search(
+            r"(上午|中午|下午|晚上|傍晚|今晚|凌晨)? *([0-9]{1,2}) *"
+            r"(?::([0-9]{2})|点 *(?:(半)|([0-9]{1,2}) *分?)?)",
+            user_lower,
+        )
+        if cn_time:
+            period = cn_time.group(1) or ""
+            hour = int(cn_time.group(2))
+            minute = 30 if cn_time.group(4) else int(cn_time.group(3) or cn_time.group(5) or 0)
+            if period in ("下午", "晚上", "傍晚", "今晚") and hour < 12:
+                hour += 12
+            elif period == "中午" and hour < 11:
+                hour += 12
+            elif period == "凌晨" and hour == 12:
+                hour = 0
+            if 0 <= hour <= 23 and 0 <= minute <= 59:
+                time_str = f"{hour:02d}:{minute:02d}"
+
     if not date_str:
-        if "today" in user_lower or "tonight" in user_lower:
+        if any(k in user_msg for k in ("today", "tonight", "今天", "今晚")):
             date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-        elif "tomorrow" in user_lower:
+        elif "后天" in user_msg:
+            date_str = (datetime.now(timezone.utc) + timedelta(days=2)).strftime("%Y-%m-%d")
+        elif any(k in user_msg for k in ("tomorrow", "明天")):
             date_str = (datetime.now(timezone.utc) + timedelta(days=1)).strftime("%Y-%m-%d")
 
-    # Check for seating area preference keywords
-    if "outdoor" in user_lower or "patio" in user_lower or "garden" in user_lower:
-        seating_area = "outdoor"
-    elif "rooftop" in user_lower or "terrace" in user_lower:
+    # Check for seating area preference keywords. Rooftop is tested first so a
+    # Chinese "天台花园" is not read as the outdoor "花园".
+    if any(k in user_msg for k in ("rooftop", "terrace", "roof", "天台", "屋顶", "楼顶")):
         seating_area = "rooftop"
-    elif "indoor" in user_lower:
+    elif any(k in user_msg for k in ("outdoor", "patio", "garden", "户外", "露台", "花园", "室外")):
+        seating_area = "outdoor"
+    elif any(k in user_msg for k in ("indoor", "室内")):
         seating_area = "indoor"
 
     # 2. Check if we need more information from the customer
     missing_fields = []
     if not party_size:
-        missing_fields.append("how many guests (party size)")
+        missing_fields.append("就餐人数")
     if not date_str:
-        missing_fields.append("what date (e.g. today, tomorrow, or YYYY-MM-DD)")
+        missing_fields.append("日期（例如：今天、明天，或 2026-10-15）")
     if not time_str:
-        missing_fields.append("what time (e.g. 7:00 PM)")
+        missing_fields.append("时间（例如：晚上 7 点）")
 
     if missing_fields:
         prompt_reply = (
-            f"I'd be glad to help you book a table! To check our availability, could you please tell me "
-            f"{', and '.join(missing_fields)}? Also let me know if you prefer indoor, outdoor, or rooftop seating."
+            f"很乐意为您预订座位！为了查询可订情况，请告诉我"
+            f"{'、'.join(missing_fields)}。另外，也请告知您偏好室内、户外露台还是天台花园。"
         )
         return {
             **state,
@@ -132,20 +159,20 @@ Output ONLY valid JSON.
     if res_result.get("success"):
         res_id = res_result["reservation_id"]
         table_label = res_result["table_label"]
-        area = res_result["seating_area"].capitalize()
+        area = seating_area_label(res_result["seating_area"])
         dt_display = res_result["date"]
         tm_display = res_result["time"]
         branch_name = res_result["branch_name"]
 
         reply = (
-            f"✅ **Reservation Confirmed!**\n\n"
-            f"• Reservation #{res_id}\n"
-            f"• Branch: {branch_name}\n"
-            f"• Table: {table_label} ({area} seating)\n"
-            f"• Date & Time: {dt_display} at {tm_display} (90 mins)\n"
-            f"• Party Size: {party_size} guests\n"
-            f"• Status: Confirmed\n\n"
-            f"We look forward to hosting you! You can manage or check your booking anytime."
+            f"✅ **预订成功！**\n\n"
+            f"• 预订编号：#{res_id}\n"
+            f"• 门店：{branch_name}\n"
+            f"• 餐桌：{table_label}（{area}）\n"
+            f"• 时间：{dt_display} {tm_display}（90 分钟）\n"
+            f"• 人数：{party_size} 位\n"
+            f"• 状态：已确认\n\n"
+            f"期待您的光临！您可以随时查看或管理本次预订。"
         )
         return {
             **state,
@@ -157,7 +184,7 @@ Output ONLY valid JSON.
         }
     else:
         # Table unavailable or race-condition conflict caught gracefully
-        error_msg = res_result.get("error", "No tables available.")
+        error_msg = res_result.get("error", "当前没有可用的餐桌。")
         reply = f"❌ {error_msg}"
         return {
             **state,

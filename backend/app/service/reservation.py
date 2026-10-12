@@ -24,6 +24,7 @@ from backend.app.exceptions import (
     TableUnavailableError,
     ValidationError,
 )
+from backend.app.labels import seating_area_label
 from backend.app.models.branch import Table
 from backend.app.models.reservation import Reservation
 from backend.app.models.user import StaffUser
@@ -39,8 +40,7 @@ VALID_RESERVATION_STATUSES = (
 )
 
 RACE_CONFLICT_MESSAGE = (
-    "That table was just reserved moments ago by another guest. "
-    "Please choose an alternative time slot or seating area."
+    "该餐桌刚刚被其他顾客预订。请选择其他时间段或座位区域。"
 )
 
 
@@ -101,21 +101,21 @@ class ReservationService:
                 s, reservation_id, with_table=True, with_customer=True, with_branch=True
             )
             if reservation is None:
-                raise NotFoundError(f'Reservation #{reservation_id} not found.')
+                raise NotFoundError(f'预订 #{reservation_id} 不存在。')
             if (
                 staff is not None
                 and staff.branch_id
                 and reservation.branch_id != staff.branch_id
             ):
                 raise ForbiddenError(
-                    'You do not have permission to manage reservations for this branch.'
+                    '您没有权限管理该门店的预订。'
                 )
 
             changes = {}
             new_status = values.get('status')
             if new_status is not None:
                 if new_status not in VALID_RESERVATION_STATUSES:
-                    raise ValidationError(f"Invalid status '{new_status}'. Must be one of {list(VALID_RESERVATION_STATUSES)}.")
+                    raise ValidationError(f"无效的状态「{new_status}」，必须是以下之一：{list(VALID_RESERVATION_STATUSES)}。")
                 changes['status'] = new_status
             if values.get('table_id') is not None:
                 changes['table_id'] = values['table_id']
@@ -146,7 +146,7 @@ class ReservationService:
         async with transactional_session(session) as s:
             branch = await BranchRepo.get_branch(s, branch_id, active_only=True)
             if branch is None:
-                raise NotFoundError(f'Branch #{branch_id} not found.')
+                raise NotFoundError(f'门店 #{branch_id} 不存在。')
 
             chosen_table = await ReservationService._pick_free_table(
                 s, branch_id, party_size, area_filter, start_time, end_time
@@ -204,14 +204,19 @@ class ReservationService:
                 if not await ReservationRepo.has_overlapping_confirmed(
                     s, table.id, start_time, end_time
                 ):
-                    alt_areas.append(f"{table.seating_area.capitalize()} (Table {table.label})")
+                    alt_areas.append(f"{seating_area_label(table.seating_area)}（餐桌 {table.label}）")
         if alt_areas:
-            alternatives = f" However, we have availability in our {', '.join(set(alt_areas))} area(s)."
+            alternatives = f" 不过，以下座位还有空位：{'、'.join(sorted(set(alt_areas)))}。"
         else:
-            alternatives = " We also have availability earlier or later in the evening."
+            alternatives = " 今晚更早或更晚的时间段也有空位。"
+        area_text = (
+            f"{seating_area_label(area_filter)}区域"
+            if area_filter != "any"
+            else "本门店"
+        )
         return (
-            f"No tables currently available for {party_size} guests in the {area_filter} area "
-            f"at {start_time.strftime('%I:%M %p')}.{alternatives}"
+            f"{start_time.strftime('%H:%M')} {area_text}暂时没有可供 {party_size} 位就餐的餐桌。"
+            f"{alternatives}"
         )
 
 
