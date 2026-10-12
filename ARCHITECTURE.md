@@ -100,4 +100,4 @@ Included because working through these is a more honest signal of engineering ab
 
 - **`CORS allow_origins=["*"]` combined with `allow_credentials=True`** is permissive by design for local chat-widget embedding during development; this should be narrowed to explicit origins before any public deployment.
 - **Seeded credentials are demo values** (`admin123`, etc.) with no forced rotation — acceptable for local development, not for a public URL.
-- **Test suite currently exercises the live local LLM** in some paths rather than mocking `OllamaDeepSeekClient.generate()`, making those tests slower and dependent on Ollama being installed and running wherever the suite executes.
+- **The test suite never exercises a live LLM.** Agent nodes stub `llm_client.generate()` and `tests/test_llm_provider.py` injects fake `httpx` / `AsyncOpenAI` transports, so the suite runs fully offline with no Ollama install, no API key, and no network. The flip side: real provider behaviour (`agent/llm_providers.py` — Ollama vs. any OpenAI-compatible endpoint, plus the `rule_based_fallback` used when an endpoint is unreachable) is only covered by manual runs against a live endpoint.
