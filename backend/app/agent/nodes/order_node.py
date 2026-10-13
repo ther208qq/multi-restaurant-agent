@@ -10,6 +10,7 @@ from backend.app.agent.labels import order_type_label
 from backend.app.agent.llm import extract_json_from_text, llm_client
 from backend.app.agent.tools.menu_tools import format_menu_for_prompt, get_branch_menu_data
 from backend.app.agent.tools.order_tools import create_order_atomic
+from backend.app.exceptions import DomainError
 from backend.app.service.order import OrderService
 
 
@@ -258,11 +259,21 @@ async def order_node(state: Dict[str, Any]) -> Dict[str, Any]:
         for it in cat.get("items", [])
     }
     known_items = [it for it in items_to_order if it.get("menu_item_id") in items_map]
-    preview = (
-        await OrderService.preview_order(branch_id, known_items)
-        if known_items
-        else {"items": [], "total_amount": 0.0}
-    )
+    if known_items:
+        try:
+            preview = await OrderService.preview_order(branch_id, known_items)
+        except DomainError as exc:
+            # e.g. an unknown variant name -- surface it as a friendly reply
+            # rather than letting it bubble out of the graph.
+            err_msg = f"⚠️ {exc.message}"
+            return {
+                **state,
+                "active_flow": "order",
+                "last_reply": err_msg,
+                "messages": [AIMessage(content=err_msg)],
+            }
+    else:
+        preview = {"items": [], "total_amount": 0.0}
 
     stock_errors = []
     summary_lines = []

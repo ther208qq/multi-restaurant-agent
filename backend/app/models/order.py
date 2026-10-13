@@ -45,7 +45,7 @@ class OrderItem(Base):
     menu_item_id = Column(Integer, ForeignKey("menu_items.id"), nullable=False, index=True)
     quantity = Column(Integer, nullable=False, default=1)
     unit_price = Column(Float, nullable=False, default=0.0)
-    selected_variants = Column(JSON, nullable=True)  # e.g. [{"type": "size", "name": "Large", "delta": 3.0}]
+    selected_variants = Column(JSON, nullable=True)  # frozen snapshot: [{"variant_type": "size", "variant_name": "大份", "price_delta": 4.0}]
     item_notes = Column(String(255), nullable=True)
 
     # Relationships

@@ -5,6 +5,12 @@ business rules shared by the staff/customer order APIs and the Agent ordering
 flow: price estimation, stock validation, atomic placement, the order lifecycle
 (legal status transitions) and cancellation / un-cancellation stock reversal.
 
+Pricing is authoritative and snapshot at placement (spec §9): the line unit
+price is the item's base price plus the variant deltas read from the database
+(never from the request), persisted on the order line together with the resolved
+variants and the frozen order total -- so later menu price changes cannot alter
+historical orders.
+
 Lifecycle (spec §9): ``placed -> confirmed -> preparing -> ready -> delivered``.
 ``cancelled`` is reachable from any non-terminal status and restores the stock
 the order held; ``delivered`` is terminal. A cancelled order may be restored to
@@ -58,15 +64,42 @@ def _status_label(status: str) -> str:
     return ORDER_STATUS_LABELS.get(status, status)
 
 
-def _variant_delta(variant: Dict[str, Any]) -> float:
-    return float(variant.get("delta") or variant.get("price_delta") or 0.0)
+def _resolve_variants(
+    menu_item, requested: Optional[List[Dict[str, Any]]]
+) -> List[Dict[str, Any]]:
+    """Resolve requested variants against the item's authoritative variant rows.
+
+    The caller (Agent / API) sends ``[{"name": ...}]`` references. The
+    ``price_delta`` always comes from the database, never from the request, so a
+    tampered ``delta`` in the payload cannot change the price. Unknown or
+    nameless variants are rejected rather than silently priced at the base.
+    """
+    variants = {v.variant_name: v for v in (menu_item.variants or [])}
+    resolved: List[Dict[str, Any]] = []
+    for req in requested or []:
+        name = str(req.get("name") or req.get("variant_name") or "").strip()
+        if not name:
+            raise ValidationError(f"「{menu_item.name}」的规格信息不完整。")
+        match = variants.get(name)
+        if match is None:
+            available = "、".join(variants) or "无"
+            raise ValidationError(
+                f"「{menu_item.name}」没有名为「{name}」的规格（可选：{available}）。"
+            )
+        resolved.append(
+            {
+                "variant_type": match.variant_type,
+                "variant_name": match.variant_name,
+                "price_delta": float(match.price_delta),
+            }
+        )
+    return resolved
 
 
-def _unit_price(
-    base_price: float, selected_variants: Optional[List[Dict[str, Any]]]
-) -> float:
+def _unit_price(base_price: float, resolved_variants: List[Dict[str, Any]]) -> float:
+    """Authoritative unit price: base price plus the resolved variant deltas."""
     return float(base_price) + sum(
-        _variant_delta(v) for v in (selected_variants or [])
+        float(v["price_delta"]) for v in resolved_variants
     )
 
 
@@ -90,22 +123,21 @@ class OrderService:
             for req in items:
                 item_id = req.get("menu_item_id")
                 qty = req.get("quantity", 1)
-                menu_item = await MenuRepo.get_item(s, item_id)
+                menu_item = await MenuRepo.get_item(s, item_id, with_variants=True)
                 if menu_item is None:
                     raise NotFoundError(f"菜品 #{item_id} 不存在。")
                 stock = await MenuRepo.get_stock(s, item_id, branch_id)
                 available = stock.stock_quantity if stock else 0
-                unit_price = _unit_price(
-                    menu_item.base_price, req.get("selected_variants")
-                )
+                variants = _resolve_variants(menu_item, req.get("selected_variants"))
+                unit_price = _unit_price(menu_item.base_price, variants)
                 shortfall = max(0, qty - available)
                 if shortfall:
                     has_shortfall = True
                 subtotal = round(unit_price * qty, 2)
                 if not shortfall:
-                    total_amount += unit_price * qty
+                    total_amount += subtotal
                 lines.append(
-                    {"menu_item_id": item_id, "name": menu_item.name, "qty": qty, "unit_price": unit_price, "subtotal": subtotal, "available_quantity": available, "shortfall": shortfall})
+                    {"menu_item_id": item_id, "name": menu_item.name, "qty": qty, "unit_price": unit_price, "subtotal": subtotal, "selected_variants": variants, "available_quantity": available, "shortfall": shortfall})
             return {
                 "items": lines,
                 "total_amount": round(total_amount, 2),
@@ -140,7 +172,7 @@ class OrderService:
                 qty = req.get('quantity', 1)
                 if qty <= 0:
                     raise ValidationError(f'菜品 #{item_id} 的数量至少为 1。')
-                menu_item = await MenuRepo.get_item(s, item_id)
+                menu_item = await MenuRepo.get_item(s, item_id, with_variants=True)
                 if menu_item is None:
                     raise NotFoundError(f'菜品 #{item_id} 不存在。')
                 if not menu_item.is_available:
@@ -149,11 +181,13 @@ class OrderService:
                 available = stock.stock_quantity if stock else 0
                 if available < qty:
                     raise ConflictError(f'「{menu_item.name}」库存不足，仅剩 {available} 份（需要 {qty} 份，缺 {qty - available} 份）。')
-                variants = req.get('selected_variants', []) or []
+                # Resolve variants against the DB *before* touching stock, so a
+                # bad variant reference aborts without a half-applied order.
+                variants = _resolve_variants(menu_item, req.get('selected_variants'))
                 unit_price = _unit_price(menu_item.base_price, variants)
                 if not await MenuRepo.try_decrement_stock(s, item_id, branch_id, qty):
                     raise ConflictError(f'「{menu_item.name}」库存已发生变化，请重试。')
-                total_amount += unit_price * qty
+                total_amount += round(unit_price * qty, 2)
                 processed.append({'menu_item_id': item_id, 'quantity': qty, 'unit_price': unit_price, 'selected_variants': variants, 'item_notes': req.get('item_notes')})
             order = await OrderRepo.create_order(
                 s,
