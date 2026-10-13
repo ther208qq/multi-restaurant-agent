@@ -22,6 +22,7 @@ from backend.app.routes import (
     branches_router,
     chat_router,
     customer_orders_router,
+    staff_audit_router,
     staff_auth_router,
     staff_branches_router,
     staff_menu_router,
@@ -87,6 +88,7 @@ app.include_router(staff_auth_router, prefix="/api")
 app.include_router(chat_router, prefix="/api")
 app.include_router(branches_router, prefix="/api")
 app.include_router(customer_orders_router, prefix="/api")
+app.include_router(staff_audit_router, prefix="/api")
 app.include_router(staff_branches_router, prefix="/api")
 app.include_router(staff_menu_router, prefix="/api")
 app.include_router(staff_orders_router, prefix="/api")

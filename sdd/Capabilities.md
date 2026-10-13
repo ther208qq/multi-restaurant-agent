@@ -39,15 +39,21 @@
 | 餐桌预订 | 按门店/状态/日期筛选、刷新 | `GET /staff/reservations?branch_id=&status=&date=` |
 | ↳ 状态流转 | 待确认→确认→入座→完成；可取消；可恢复已取消 | `PATCH /staff/reservations/{id}` |
 | ↳ 改约 | 改时间/人数/时长/座位区（连带重新选桌） | 同上（`start_time` / `party_size` / `duration_minutes` / `seating_area_preference`） |
-| ↳ 查空桌 | 按门店+日期+时间+人数列可订餐桌 | `GET /staff/reservations/availability` |
+| ↳ 查空桌 | 按门店+日期+时间+人数列可订餐桌（**限本门店**） | `GET /staff/reservations/availability` |
 | ↳ 改派餐桌 | 弹窗选新餐桌后确认（已入座也可改派） | `GET /staff/branches/tables` + `PATCH /staff/reservations/{id}` `{table_id}` |
 | 菜单与库存 | 在售/停售切换、改库存、快捷 +10/+50、清零 | `PATCH /staff/menu/items/{id}`、`PUT /staff/menu/stock` |
 | ↳ 新建 | 新建分类；新建菜品（含初始库存） | `POST /staff/menu/categories`、`POST /staff/menu/items` |
 | 门店与餐桌 | 查看餐桌；启用/停用；添加餐桌 | `GET/PATCH/POST /staff/branches/tables` |
+| 操作日志 | 按门店/操作类型筛选，看谁在何时改了什么 | `GET /staff/audit-logs` |
 
 **订单状态机**：`placed → confirmed → preparing → ready → delivered`，任意非终态可 `cancelled`（`cancelled → placed` 仅员工撤销误操作）。
 **预订状态机**：`pending → confirmed → seated → completed`，任意非终态可 `cancelled`，`cancelled → pending` 可恢复（恢复前会校验原时段是否仍空闲）。
 **占用语义**：`pending` / `confirmed` / `seated` 三种状态都**占住餐桌**——数据库排他约束与应用层查空桌用的是同一套「占用状态」；只有取消或完成才释放时段。
+
+**权限与审计（Task18）**：
+- **门店权限**：带 `branch_id` 的员工只能看/改本门店数据（订单、预订、菜单、库存、餐桌、操作日志），请求里带别的门店 id 会被忽略或拒绝（`403 您没有权限访问该门店。`）；`branch_id` 为空的超级管理员不受限。
+- **角色权限**：新建/修改门店需 `role=admin`（`403 需要管理员权限`），其余后台操作员工即可。
+- **审计**：下单、订单状态变更（含取消）、预订创建/状态变更/改约/改派餐桌、库存调整、菜品与分类增改、门店与餐桌增改，都会连同**操作者**（类型、id、用户名/姓名、角色）与**变更前后值**写入 `audit_logs`；写入与业务操作同一事务，操作失败或被拒绝时不留审计行。操作日志页只读。
 
 ## 3. 前端缺口（有 API 无界面）
 
@@ -58,6 +64,7 @@
 | 会话校验 | `GET /auth/me`、`GET /staff/me` | 定义了但**无人调用**（死代码） |
 | 列分类 | `GET /staff/menu/categories` | 定义了但无人调用，`MenuManager` 改用公开的 `GET /branches/{id}/menu` |
 | 列门店（员工） | `GET /staff/branches` | 定义了但无人调用，`AdminLayout` 复用公开 `GET /branches` |
+| 操作日志按操作筛选 | `GET /staff/audit-logs?action=` 等 | `AuditLogManager` 已用（门店/操作/条数筛选）；`entity_type` / `entity_id` 参数暂无界面 |
 
 其他：菜品只能改「是否在售」与库存，**改不了名称/描述/价格/规格**；分类、菜品、餐桌**均无删除接口**；后台**不能手工建单或建预订**。新部署只能依赖种子数据。
 

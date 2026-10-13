@@ -188,9 +188,19 @@ export const api = {
       'staff'
     ),
 
+  // Staff Audit Log
+  getAuditLogs: (branchId = null, action = null, entityType = null, limit = null) => {
+    const params = new URLSearchParams();
+    if (branchId) params.append('branch_id', branchId);
+    if (action) params.append('action', action);
+    if (entityType) params.append('entity_type', entityType);
+    if (limit) params.append('limit', limit);
+    const qs = params.toString() ? `?${params.toString()}` : '';
+    return request(`/staff/audit-logs${qs}`, { method: 'GET' }, 'staff');
+  },
+
   // Staff Menu & Stock
-  getStaffCategories: (branchId = null) => {
-    const qs = branchId ? `?branch_id=${branchId}` : '';
+  getStaffCategories: (branchId = null) => {    const qs = branchId ? `?branch_id=${branchId}` : '';
     return request(`/staff/menu/categories${qs}`, { method: 'GET' }, 'staff');
   },
 

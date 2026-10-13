@@ -83,6 +83,17 @@ The same "reverse the decrement" logic applies on order cancellation, and — a 
 
 Two separate JWT-based auth flows — customer and staff — rather than one role field on a shared user table, since the two have almost no overlapping permissions or data access and conflating them would make it easy to accidentally leak a staff-only field into a customer-facing response (or vice versa).
 
+**Authorization is enforced in the Service layer, not the routes.** The routes only decide *who is calling* (JWT → `Customer` / `StaffUser`, plus `require_admin` for branch create/update); the actual scope rule — "a branch-bound staff member may only read or act on their own branch" — lives in the Service methods that both the API and the Agent call, so a new endpoint cannot accidentally bypass it by forgetting a check. Reads are scoped as well as writes: `GET /staff/orders`, `/staff/reservations`, `/staff/reservations/availability`, `/staff/branches/tables`, `/staff/menu/categories` and `/staff/audit-logs` all resolve their branch through the caller's `StaffUser` and ignore (or reject with `403`) a `branch_id` pointing elsewhere. Out-of-scope ids are rejected with a domain `ForbiddenError`, mapped to `403` by the same exception handler that maps `ValidationError` → `400` and `ConflictError` → `409`.
+
+## Audit trail
+
+Key operations are recorded in an `audit_logs` table (spec §9 "权限与审计"): order placement and status moves (including cancellation and the un-cancel restore), stock adjustments, menu item/category changes, reservation creation, status moves, reschedules and table reassignments, and branch/table edits. Each row carries the actor (`actor_type` / `actor_id` / `actor_name` / `actor_role`), the branch, the action code, the affected entity, and a JSON `details` payload with the before/after values.
+
+Two design choices are worth calling out:
+
+- **The audit row is written on the audited operation's own transaction**, via `AuditService.record(session, ...)` — a Service method that deliberately does *not* open its own transaction. A rejected stock adjustment, an illegal status transition, or a reservation that loses the exclusion-constraint race rolls the whole thing back and leaves no audit entry behind, so the trail can never claim an operation that did not happen. Read access (`AuditService.list_logs`) *is* a normal Service entry point and applies the branch-scope rule.
+- **The actor is denormalized, not a foreign key.** The trail stays readable after a staff account or customer is deleted, and the same table records both human actors and Agent-driven ones (an order placed through chat is attributed to the `customer` that placed it, read from the authenticated state the route injected — never from anything the LLM said).
+
 ## Engineering log: real issues found and fixed
 
 Included because working through these is a more honest signal of engineering ability than a bug-free changelog would be.
@@ -95,6 +106,7 @@ Included because working through these is a more honest signal of engineering ab
 | Cancelling an order didn't restore stock | Status-update endpoint changed the `status` field but never touched `menu_item_stocks` on any transition | Added stock restoration on cancel *and* re-validation on un-cancel (rejecting it with `409` if that stock was resold in the meantime) |
 | Seed script crashed on second run | `SELECT` with no `LIMIT` fetched all rows; `.scalar_one_or_none()` requires 0 or 1 and raised `MultipleResultsFound` once 2+ branches existed — meaning the "already seeded, skip" guard broke *because* seeding had already succeeded | Added `.limit(1)` |
 | A `500` on account creation and a stuck menu load looked like two bugs | Both were the same root cause — the backend process wasn't running/reachable, so every request failed the same way | Diagnosed by checking the backend terminal directly rather than treating the two symptoms as independent |
+| `init_db()` silently created no new tables when called from a script | `Base.metadata` only knows the models whose modules have been imported. The app happens to import all of them through its routers, so a new model was registered by accident — until a standalone script called `init_db()` on its own and got an empty `create_all()` | Import the model registry inside `init_db()` so table creation no longer depends on the caller's import order |
 
 ## Known trade-offs
 

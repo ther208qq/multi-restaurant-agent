@@ -72,6 +72,11 @@ async def transactional_session(
 
 async def init_db() -> None:
     """Initialize database tables and required extensions."""
+    # Import the model registry first: ``Base.metadata`` only knows about the
+    # models whose modules have been imported, so relying on the caller's import
+    # order would silently skip tables (e.g. when init_db runs from a script).
+    from backend.app import models  # noqa: F401  (registers every model)
+
     async with engine.begin() as conn:
         # Enable btree_gist extension for PostgreSQL exclusion constraint on reservations
         await conn.execute(text("CREATE EXTENSION IF NOT EXISTS btree_gist;"))

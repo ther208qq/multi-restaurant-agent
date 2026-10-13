@@ -101,6 +101,7 @@ async def list_table_availability(
         party_size=party_size,
         duration_minutes=duration_minutes,
         seating_area=seating_area,
+        staff=current_staff,
         session=db,
     )
     return [_format_availability_item(t) for t in tables]

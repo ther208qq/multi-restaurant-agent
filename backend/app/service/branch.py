@@ -13,6 +13,7 @@ from backend.app.exceptions import ForbiddenError, NotFoundError
 from backend.app.models.branch import Branch, Table
 from backend.app.models.user import StaffUser
 from backend.app.repo.branch import BranchRepo
+from backend.app.service.audit import AuditService
 
 
 class BranchService:
@@ -45,23 +46,49 @@ class BranchService:
 
     @staticmethod
     async def create_branch(
-        values: Dict[str, Any], *, session: Optional[AsyncSession] = None
+        values: Dict[str, Any],
+        *,
+        actor: Optional[StaffUser] = None,
+        session: Optional[AsyncSession] = None,
     ) -> Branch:
         async with transactional_session(session) as s:
-            return await BranchRepo.create_branch(s, values)
+            branch = await BranchRepo.create_branch(s, values)
+            await AuditService.record(
+                s,
+                "branch.created",
+                entity_type="branch",
+                entity_id=branch.id,
+                branch_id=branch.id,
+                actor=actor,
+                details={"name": branch.name},
+            )
+            return branch
 
     @staticmethod
     async def update_branch(
         branch_id: int,
         values: Dict[str, Any],
         *,
+        actor: Optional[StaffUser] = None,
         session: Optional[AsyncSession] = None,
     ) -> Branch:
         async with transactional_session(session) as s:
             branch = await BranchRepo.get_branch(s, branch_id)
             if branch is None:
                 raise NotFoundError("门店不存在。")
-            return await BranchRepo.update_branch(s, branch, values)
+            before = {key: getattr(branch, key) for key in values if hasattr(branch, key)}
+            updated = await BranchRepo.update_branch(s, branch, values)
+            if before:
+                await AuditService.record(
+                    s,
+                    "branch.updated",
+                    entity_type="branch",
+                    entity_id=branch_id,
+                    branch_id=branch_id,
+                    actor=actor,
+                    details={"changes": {key: [before[key], getattr(updated, key)] for key in before}},
+                )
+            return updated
 
     @staticmethod
     async def list_tables(
@@ -84,7 +111,21 @@ class BranchService:
         if staff.branch_id and values.get("branch_id") != staff.branch_id:
             raise ForbiddenError("您没有权限访问该门店。")
         async with transactional_session(session) as s:
-            return await BranchRepo.create_table(s, values)
+            table = await BranchRepo.create_table(s, values)
+            await AuditService.record(
+                s,
+                "table.created",
+                entity_type="table",
+                entity_id=table.id,
+                branch_id=table.branch_id,
+                actor=staff,
+                details={
+                    "label": table.label,
+                    "seating_area": table.seating_area,
+                    "capacity": table.capacity,
+                },
+            )
+            return table
 
     @staticmethod
     async def update_table(
@@ -100,7 +141,19 @@ class BranchService:
                 raise NotFoundError("餐桌不存在。")
             if staff.branch_id and table.branch_id != staff.branch_id:
                 raise ForbiddenError("您没有权限访问该门店。")
-            return await BranchRepo.update_table(s, table, values)
+            before = {key: getattr(table, key) for key in values if hasattr(table, key)}
+            updated = await BranchRepo.update_table(s, table, values)
+            if before:
+                await AuditService.record(
+                    s,
+                    "table.updated",
+                    entity_type="table",
+                    entity_id=table_id,
+                    branch_id=updated.branch_id,
+                    actor=staff,
+                    details={"changes": {key: [before[key], getattr(updated, key)] for key in before}},
+                )
+            return updated
 
 
 __all__ = ["BranchService"]

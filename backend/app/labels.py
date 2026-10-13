@@ -35,10 +35,47 @@ SEATING_AREA_LABELS = {
     "rooftop": "天台花园",
 }
 
+# Audited operations (see ``service/audit.py``). Read-only views render these.
+AUDIT_ACTION_LABELS = {
+    "order.created": "下单",
+    "order.status_changed": "订单状态变更",
+    "reservation.created": "新建预订",
+    "reservation.status_changed": "预订状态变更",
+    "reservation.rescheduled": "预改约",
+    "reservation.table_reassigned": "改派餐桌",
+    "stock.updated": "库存调整",
+    "menu_category.created": "新建菜品分类",
+    "menu_item.created": "新建菜品",
+    "menu_item.updated": "修改菜品",
+    "branch.created": "新建门店",
+    "branch.updated": "修改门店",
+    "table.created": "新建餐桌",
+    "table.updated": "修改餐桌",
+}
+
+AUDIT_ENTITY_LABELS = {
+    "order": "订单",
+    "reservation": "预订",
+    "menu_item": "菜品",
+    "menu_category": "菜品分类",
+    "branch": "门店",
+    "table": "餐桌",
+}
+
 
 def order_type_label(order_type: str) -> str:
     """Chinese label for an order type, falling back to the raw code."""
     return ORDER_TYPE_LABELS.get(order_type, order_type)
+
+
+def audit_action_label(action: str) -> str:
+    """Chinese label for an audited action, falling back to the raw code."""
+    return AUDIT_ACTION_LABELS.get(action, action)
+
+
+def audit_entity_label(entity_type: str) -> str:
+    """Chinese label for an audited entity type, falling back to the raw code."""
+    return AUDIT_ENTITY_LABELS.get(entity_type, entity_type)
 
 
 def seating_area_label(area: str) -> str:
@@ -51,6 +88,10 @@ __all__ = [
     "ORDER_STATUS_LABELS",
     "RESERVATION_STATUS_LABELS",
     "SEATING_AREA_LABELS",
+    "AUDIT_ACTION_LABELS",
+    "AUDIT_ENTITY_LABELS",
     "order_type_label",
     "seating_area_label",
+    "audit_action_label",
+    "audit_entity_label",
 ]

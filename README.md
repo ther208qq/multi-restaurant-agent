@@ -36,6 +36,8 @@ The interesting engineering problem this project solves isn't "wire an LLM to a 
 - 📅 Reservation management: availability lookup, confirm / seat / complete / cancel, reschedule and manual table reassignment
 - ✏️ Menu and per-branch stock editor
 - ⚙️ Branch and table configuration
+- 🔍 Operation audit log: every key action (order cancellation, stock adjustment, table reassignment, reservation change, menu/branch edits) recorded with who did it and the before/after values
+- 🔒 Branch-scoped permissions: a branch-bound staff account only ever sees and acts on its own branch; branch create/edit is admin-only
 
 ## 💻 Tech stack
 
@@ -89,7 +91,7 @@ npm run dev
 pytest -v
 ```
 
-Covers: JWT auth flows, atomic stock decrement under concurrency, reservation lifecycle transitions and rescheduling, the PostgreSQL exclusion constraint rejecting overlapping reservations in any occupying status, and order cancel/un-cancel stock reversal.
+Covers: JWT auth flows, branch-scoped staff permissions, the operation audit trail (including that a rejected operation leaves no audit row), atomic stock decrement under concurrency, reservation lifecycle transitions and rescheduling, the PostgreSQL exclusion constraint rejecting overlapping reservations in any occupying status, and order cancel/un-cancel stock reversal.
 
 ## 🚧 Known limitations
 
@@ -103,7 +105,9 @@ Documented deliberately rather than discovered by a reader — this is a portfol
 ```
 backend/app/
 ├── agent/          # 🤖 LangGraph nodes, tools, LLM client, checkpointing
-├── models/         # 🗃️ SQLAlchemy models (branches, menu, orders, reservations, users)
+├── models/         # 🗃️ SQLAlchemy models (branches, menu, orders, reservations, users, audit)
+├── repo/           # 🗄️ Data access (only layer that touches the DB)
+├── service/        # ⚙️ Business rules, transactions, permissions, audit recording
 ├── routes/         # 🛣️ FastAPI routers (customer + staff APIs)
 ├── schemas/        # 📄 Pydantic request/response schemas
 └── seed.py         # 🌱 Demo data seeding

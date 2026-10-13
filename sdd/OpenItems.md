@@ -107,3 +107,37 @@ Task17「完善预订生命周期」已实现：查询可用餐桌、预订确�
 - 测试：新增 `backend/tests/test_reservation_lifecycle.py`（状态机、改约、查空桌、占用与并发），并更新既有预订测试；全量 **353 passed**。
 
 **遗留（不在 Task17 范围）**：Agent 仍不能取消/修改已落库的预订（`update_reservation` 仅员工路由可用）；若需顾客自助取消，需另开任务加工具与消息流。
+
+---
+
+## 八、Task18 收尾（2026-10-13）
+
+Task18「完善权限与审计」已实现：后端校验用户 / 员工 / 门店权限；关键操作连同操作者写入审计日志。
+
+### 权限（`service/` 层，API 与 Agent 共用）
+
+审计与权限都放在 Service 层而不是路由，路由只负责「谁在调用」。逐端点复核后的结论：
+
+| 端端点 | 结论 |
+|---|---|
+| `GET /staff/reservations/availability` | **本次修复**：原先不带任何门店校验，带 `branch_id` 的员工可查任意门店的空桌（越权读）。现由 `ReservationService.list_available_tables(..., staff=...)` 校验，跨门店 `403`；Agent 调用时 `staff=None`，不受影响。 |
+| `GET /staff/orders`、`/staff/reservations`、`/staff/menu/categories`、`/staff/branches/tables` | 本来就用 `staff.branch_id or branch_id` 收敛到本门店，无需改。 |
+| `PATCH /staff/orders/{id}/status`、`PATCH /staff/reservations/{id}`、`PUT /staff/menu/stock`、`PATCH /staff/menu/items/{id}`、`POST /staff/menu/{categories,items}`、`POST|PATCH /staff/branches/tables` | 本来就有门店校验，无需改。 |
+| `POST|PATCH /staff/branches` | 本来就有 `require_admin`（`role != admin` → `403 需要管理员权限`）。 |
+| 顾客侧 `/orders/me`、`/reservations/me`、`POST /chat` | 由 JWT 注入的 `customer_id` 决定范围，无越权路径。 |
+
+### 审计（新增 `audit_logs` + `AuditService`）
+
+- **表**：`audit_logs`（actor_type/id/name/role、branch_id、action、entity_type/id、details JSONB、created_at）。操作者**冗余存储**而非外键，账号删除后记录仍可读。
+- **写入语义**：`AuditService.record(session, ...)` **不开自己的事务**，而是加入被审计操作的事务——业务回滚则不落审计行。测试专门覆盖「非法状态转换」「库存不足被拒」两种情况下不留记录。读取侧的 `AuditService.list_logs(staff, ...)` 才是常规 Service 入口，按门店收敛。
+- **覆盖的操作**：`order.created`、`order.status_changed`（含取消与反取消，记录 from/to）、`reservation.created`、`reservation.status_changed`、`reservation.rescheduled`、`reservation.table_reassigned`（含「无桌预订入座时自动派桌」）、`stock.updated`（from/to）、`menu_item.created/updated`、`menu_category.created`、`branch.created/updated`、`table.created/updated`。一次请求的多个操作各记一行（例如同时改约 + 改派餐桌）。
+- **读取接口**：新增 `GET /staff/audit-logs?branch_id=&action=&entity_type=&entity_id=&limit=`（limit ≤ 200），门店收敛逻辑与其它员工接口一致；门店 id 传别的门店会被忽略。
+- **前端**：`AdminLayout` 新增「操作日志」页签，`AuditLogManager` 支持门店 / 操作类型 / 条数筛选，展示时间、操作者、操作、对象与变更前后值。
+
+### 其它
+
+- 修掉一个潜在坑：`init_db()` 依赖调用方先 import 模型才能让 `Base.metadata` 有表。应用启动时靠路由间接 import 到了全部模型，因此一直没暴露；本次以脚本调用 `init_db()` 建表时才发现 `create_all()` 建了个寂寞。已在 `init_db()` 内部 import 模型注册表（`backend/app/models/__init__.py`），写入 `ARCHITECTURE.md` 的工程日志。
+- **开发库**：`audit_logs` 通过 `create_all()` 增量建出（未 drop 重建，订单 28 / 预订 10 不变）。冒烟测试用 `downtown_staff` 把门店 1 的餐桌 P1 容量 2→4→2 改了个来回（数据已复原），留下 2 行真实审计记录（id 1、2）。
+- 测试：新增 `backend/tests/test_audit.py`（17 条：各类操作的记录与操作者、失败不留痕、门店收敛、接口 401/403），全量 **370 passed**；前端 `npm run build` 通过。
+
+**遗留**：审计表**没有自动清理/归档**（长期运行会持续增长）；操作日志页只读，无导出。均不在 Task18 范围。

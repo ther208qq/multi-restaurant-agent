@@ -36,6 +36,8 @@ from backend.app.models.order import Order
 from backend.app.models.user import StaffUser
 from backend.app.repo.menu import MenuRepo
 from backend.app.repo.order import OrderRepo
+from backend.app.repo.user import UserRepo
+from backend.app.service.audit import AuditService
 
 VALID_ORDER_STATUSES = (
     "placed",
@@ -203,6 +205,21 @@ class OrderService:
             )
             for p in processed:
                 await OrderRepo.add_order_item(s, {'order_id': order.id, **p})
+            # Audit trail (spec §9): who placed the order, in which branch.
+            await AuditService.record(
+                s,
+                'order.created',
+                entity_type='order',
+                entity_id=order.id,
+                branch_id=branch_id,
+                actor=await UserRepo.get_customer_by_id(s, customer_id),
+                details={
+                    'order_type': order_type,
+                    'status': order.status,
+                    'total_amount': round(total_amount, 2),
+                    'line_count': len(processed),
+                },
+            )
             return order
 
     @staticmethod
@@ -291,8 +308,20 @@ class OrderService:
                     f'不允许将订单从「{_status_label(order.status)}」变更为'
                     f'「{_status_label(new_status)}」。'
                 )
+            previous_status = order.status
             await OrderService._apply_status_stock_effects(s, order, new_status)
             await OrderRepo.update_order_status(s, order, new_status)
+            # Audit trail (spec §9): status moves -- including cancellation and
+            # the cancelled -> placed restore -- record actor and from/to.
+            await AuditService.record(
+                s,
+                'order.status_changed',
+                entity_type='order',
+                entity_id=order.id,
+                branch_id=order.branch_id,
+                actor=staff,
+                details={'from': previous_status, 'to': new_status},
+            )
             # ``updated_at`` is server-generated (``onupdate``), so SQLAlchemy
             # expires it after the UPDATE; refresh here, inside the async
             # boundary, to keep the returned object fully populated.

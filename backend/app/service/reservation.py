@@ -44,6 +44,8 @@ from backend.app.models.reservation import OCCUPYING_RESERVATION_STATUSES, Reser
 from backend.app.models.user import StaffUser
 from backend.app.repo.branch import BranchRepo
 from backend.app.repo.reservation import ReservationRepo
+from backend.app.repo.user import UserRepo
+from backend.app.service.audit import AuditService
 
 VALID_RESERVATION_STATUSES = (
     "pending",
@@ -144,6 +146,7 @@ class ReservationService:
         duration_minutes: int = 90,
         seating_area: Optional[str] = None,
         *,
+        staff: Optional[StaffUser] = None,
         session: Optional[AsyncSession] = None,
     ) -> List[Table]:
         """Free tables for a slot, best-fit (smallest capacity) first.
@@ -151,8 +154,12 @@ class ReservationService:
         The read-only counterpart of :meth:`book_table`: it answers "what could I
         book at this time?" for the staff API and for the Agent's unavailable-slot
         explanation, using the same occupancy rule (every *occupying* status
-        blocks its table).
+        blocks its table). When called from the staff API (``staff`` given), the
+        branch-scope rule applies: a branch-bound staff member may only inspect
+        their own branch.
         """
+        if staff is not None and staff.branch_id and branch_id != staff.branch_id:
+            raise ForbiddenError("您没有权限访问该门店。")
         if party_size < 1:
             raise ValidationError("就餐人数至少为 1 位。")
         start = _coerce_start_time(start_time)
@@ -249,6 +256,23 @@ class ReservationService:
                 raise ReservationRaceError(RACE_CONFLICT_MESSAGE)
             reservation.branch = branch
             reservation.table = chosen_table
+            # Audit trail (spec §9): the booking holds its table from the moment
+            # it is created -- attribute it to the customer who booked it.
+            await AuditService.record(
+                s,
+                'reservation.created',
+                entity_type='reservation',
+                entity_id=reservation.id,
+                branch_id=branch_id,
+                actor=await UserRepo.get_customer_by_id(s, customer_id),
+                details={
+                    'status': reservation.status,
+                    'party_size': party_size,
+                    'duration_minutes': duration_minutes,
+                    'table_id': chosen_table.id,
+                    'start_time': start_time.isoformat(),
+                },
+            )
             return reservation
 
     @staticmethod
@@ -322,6 +346,16 @@ class ReservationService:
                     '您没有权限管理该门店的预订。'
                 )
 
+            # Snapshot the pre-change state for the audit trail (§9).
+            previous = {
+                'status': reservation.status,
+                'table_id': reservation.table_id,
+                'table_label': reservation.table.label if reservation.table else None,
+                'start_time': reservation.start_time,
+                'party_size': reservation.party_size,
+                'duration_minutes': reservation.duration_minutes,
+            }
+
             changes: Dict[str, Any] = {}
             new_status = values.get('status')
             new_table_id = values.get('table_id')
@@ -352,6 +386,7 @@ class ReservationService:
             duration_minutes = reservation.duration_minutes
             party_size = reservation.party_size
             table = None
+            seated_table = None
             if reschedule or new_table_id is not None:
                 if new_start_raw is not None:
                     start_time = _coerce_start_time(new_start_raw)
@@ -395,17 +430,16 @@ class ReservationService:
                     if new_status == 'seated' and table is None and reservation.table_id is None:
                         # A booking without a table can still be seated: take any
                         # free one for its own slot.
-                        changes['table_id'] = (
-                            await ReservationService._require_free_table(
-                                s,
-                                reservation.branch_id,
-                                party_size,
-                                reservation.seating_area_preference or 'any',
-                                start_time,
-                                end_time,
-                                exclude_reservation_id=reservation.id,
-                            )
-                        ).id
+                        seated_table = await ReservationService._require_free_table(
+                            s,
+                            reservation.branch_id,
+                            party_size,
+                            reservation.seating_area_preference or 'any',
+                            start_time,
+                            end_time,
+                            exclude_reservation_id=reservation.id,
+                        )
+                        changes['table_id'] = seated_table.id
                     elif new_status == 'pending' and reservation.status == 'cancelled':
                         await ReservationService._ensure_slot_still_free(s, reservation)
 
@@ -434,6 +468,24 @@ class ReservationService:
                 except IntegrityError:
                     await s.rollback()
                     raise ReservationRaceError(RACE_CONFLICT_MESSAGE)
+
+            # --- 4. Audit trail (spec §9) --------------------------------------
+            # Recorded after the write succeeds, on the same transaction: a race
+            # rejection above rolls back and leaves no audit row behind.
+            await ReservationService._record_update_audit(
+                s,
+                reservation_id=reservation_id,
+                branch_id=reservation.branch_id,
+                staff=staff,
+                previous=previous,
+                changes=changes,
+                moved=moved,
+                start_time=start_time,
+                party_size=party_size,
+                duration_minutes=duration_minutes,
+                new_area=new_area,
+                new_table=table or seated_table,
+            )
             # Re-read so the caller gets the reloaded table / branch relationship
             # (a reschedule may have swapped the table) rather than a stale object.
             return await ReservationRepo.get_reservation(
@@ -442,6 +494,85 @@ class ReservationService:
                 with_table=True,
                 with_customer=True,
                 with_branch=True,
+            )
+
+    @staticmethod
+    async def _record_update_audit(
+        s: AsyncSession,
+        *,
+        reservation_id: int,
+        branch_id: int,
+        staff: Optional[StaffUser],
+        previous: Dict[str, Any],
+        changes: Dict[str, Any],
+        moved: bool,
+        start_time: datetime,
+        party_size: int,
+        duration_minutes: int,
+        new_area: Optional[str],
+        new_table: Optional[Table],
+    ) -> None:
+        """Write the audit rows for one staff reservation update.
+
+        A single request can be several auditable operations at once (a
+        reschedule *and* a table reassignment *and* a status move), so each one
+        gets its own row rather than one overloaded entry.
+        """
+        if changes.get('status') is not None:
+            await AuditService.record(
+                s,
+                'reservation.status_changed',
+                entity_type='reservation',
+                entity_id=reservation_id,
+                branch_id=branch_id,
+                actor=staff,
+                details={'from': previous['status'], 'to': changes['status']},
+            )
+
+        if moved:
+            rescheduled: Dict[str, Any] = {}
+            if start_time != previous['start_time']:
+                rescheduled['start_time'] = [
+                    previous['start_time'].isoformat(),
+                    start_time.isoformat(),
+                ]
+            if party_size != previous['party_size']:
+                rescheduled['party_size'] = [previous['party_size'], party_size]
+            if duration_minutes != previous['duration_minutes']:
+                rescheduled['duration_minutes'] = [
+                    previous['duration_minutes'],
+                    duration_minutes,
+                ]
+            if new_area is not None:
+                rescheduled['seating_area_preference'] = new_area.lower()
+            if rescheduled:
+                await AuditService.record(
+                    s,
+                    'reservation.rescheduled',
+                    entity_type='reservation',
+                    entity_id=reservation_id,
+                    branch_id=branch_id,
+                    actor=staff,
+                    details=rescheduled,
+                )
+
+        # A table move can come from an explicit re-table, from a reschedule that
+        # picked a different table, or from seating a booking that had none.
+        new_table_id = changes.get('table_id', previous['table_id'])
+        if new_table_id != previous['table_id']:
+            await AuditService.record(
+                s,
+                'reservation.table_reassigned',
+                entity_type='reservation',
+                entity_id=reservation_id,
+                branch_id=branch_id,
+                actor=staff,
+                details={
+                    'from_table_id': previous['table_id'],
+                    'from_table_label': previous['table_label'],
+                    'to_table_id': new_table_id,
+                    'to_table_label': new_table.label if new_table else None,
+                },
             )
 
     @staticmethod

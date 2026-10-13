@@ -3,10 +3,11 @@ import OrdersManager from './OrdersManager';
 import ReservationsManager from './ReservationsManager';
 import MenuManager from './MenuManager';
 import BranchTableManager from './BranchTableManager';
-import { ShoppingBag, Calendar, Utensils, MapPin, LogOut, Shield } from 'lucide-react';
+import AuditLogManager from './AuditLogManager';
+import { ShoppingBag, Calendar, Utensils, MapPin, LogOut, Shield, History } from 'lucide-react';
 
 export default function AdminLayout({ currentStaff, branches, onLogout, onRefreshBranches }) {
-  const [activeTab, setActiveTab] = useState('orders'); // 'orders' | 'reservations' | 'menu' | 'branches'
+  const [activeTab, setActiveTab] = useState('orders'); // 'orders' | 'reservations' | 'menu' | 'branches' | 'audit'
 
   const ROLE_LABELS = { admin: '管理员', staff: '员工' };
 
@@ -70,6 +71,13 @@ export default function AdminLayout({ currentStaff, branches, onLogout, onRefres
         >
           <MapPin size={16} /> 门店与餐桌
         </button>
+        <button
+          className={`admin-tab ${activeTab === 'audit' ? 'active' : ''}`}
+          onClick={() => setActiveTab('audit')}
+          style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+        >
+          <History size={16} /> 操作日志
+        </button>
       </div>
 
       {/* Subtab Content */}
@@ -91,6 +99,10 @@ export default function AdminLayout({ currentStaff, branches, onLogout, onRefres
           branches={branches}
           onRefreshBranches={onRefreshBranches}
         />
+      )}
+
+      {activeTab === 'audit' && (
+        <AuditLogManager currentStaff={currentStaff} branches={branches} />
       )}
     </div>
   );

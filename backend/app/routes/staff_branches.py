@@ -37,7 +37,9 @@ async def create_branch(
     db: AsyncSession = Depends(get_db),
 ):
     """Create a new restaurant branch (Admin only)."""
-    return await BranchService.create_branch(payload.model_dump(), session=db)
+    return await BranchService.create_branch(
+        payload.model_dump(), actor=current_admin, session=db
+    )
 
 
 @router.patch("/{branch_id}", response_model=BranchResponse)
@@ -49,7 +51,7 @@ async def update_branch(
 ):
     """Update branch details (Admin only)."""
     return await BranchService.update_branch(
-        branch_id, payload.model_dump(exclude_unset=True), session=db
+        branch_id, payload.model_dump(exclude_unset=True), actor=current_admin, session=db
     )
 
 

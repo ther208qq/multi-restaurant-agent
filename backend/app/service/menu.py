@@ -20,6 +20,7 @@ from backend.app.models.menu import (
 from backend.app.models.user import StaffUser
 from backend.app.repo.branch import BranchRepo
 from backend.app.repo.menu import MenuRepo
+from backend.app.service.audit import AuditService
 
 DEFAULT_INITIAL_STOCK = 50
 _UPDATABLE_ITEM_FIELDS = ("name", "description", "base_price", "is_available")
@@ -140,7 +141,17 @@ class MenuService:
         if staff.branch_id and branch_id != staff.branch_id:
             raise ForbiddenError("您没有权限访问该门店。")
         async with transactional_session(session) as s:
-            return await MenuRepo.create_category(s, branch_id, name)
+            category = await MenuRepo.create_category(s, branch_id, name)
+            await AuditService.record(
+                s,
+                "menu_category.created",
+                entity_type="menu_category",
+                entity_id=category.id,
+                branch_id=branch_id,
+                actor=staff,
+                details={"name": name},
+            )
+            return category
 
     @staticmethod
     async def create_item(
@@ -180,6 +191,19 @@ class MenuService:
                 branch_id=category.branch_id,
                 stock_quantity=stock_quantity,
             )
+            await AuditService.record(
+                s,
+                "menu_item.created",
+                entity_type="menu_item",
+                entity_id=item.id,
+                branch_id=category.branch_id,
+                actor=staff,
+                details={
+                    "name": name,
+                    "base_price": float(base_price),
+                    "initial_stock": stock_quantity,
+                },
+            )
             return item, stock
 
     @staticmethod
@@ -203,7 +227,23 @@ class MenuService:
                 for key, value in values.items()
                 if key in _UPDATABLE_ITEM_FIELDS and value is not None
             }
-            return await MenuRepo.update_item(s, item, updates)
+            before = {key: getattr(item, key) for key in updates}
+            updated = await MenuRepo.update_item(s, item, updates)
+            if before:
+                await AuditService.record(
+                    s,
+                    "menu_item.updated",
+                    entity_type="menu_item",
+                    entity_id=item.id,
+                    branch_id=item.category.branch_id,
+                    actor=staff,
+                    details={
+                        "changes": {
+                            key: [before[key], updates[key]] for key in updates
+                        }
+                    },
+                )
+            return updated
 
     @staticmethod
     async def update_stock(
@@ -219,12 +259,24 @@ class MenuService:
         if stock_quantity < 0:
             raise ValidationError("库存数量不能为负数。")
         async with transactional_session(session) as s:
-            return await MenuRepo.set_stock(
+            existing = await MenuRepo.get_stock(s, menu_item_id, branch_id)
+            previous_quantity = existing.stock_quantity if existing else 0
+            stock = await MenuRepo.set_stock(
                 s,
                 menu_item_id=menu_item_id,
                 branch_id=branch_id,
                 stock_quantity=stock_quantity,
             )
+            await AuditService.record(
+                s,
+                "stock.updated",
+                entity_type="menu_item",
+                entity_id=menu_item_id,
+                branch_id=branch_id,
+                actor=staff,
+                details={"from": previous_quantity, "to": stock_quantity},
+            )
+            return stock
 
 
 __all__ = [

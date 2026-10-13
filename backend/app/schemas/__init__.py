@@ -8,6 +8,7 @@ from backend.app.schemas.auth import (
     StaffResponse,
     TokenResponse,
 )
+from backend.app.schemas.audit import AuditLogResponse
 from backend.app.schemas.branch import (
     BranchCreate,
     BranchResponse,
@@ -48,6 +49,7 @@ __all__ = [
     "StaffLoginRequest",
     "StaffResponse",
     "TokenResponse",
+    "AuditLogResponse",
     "BranchCreate",
     "BranchResponse",
     "BranchUpdate",
