@@ -23,7 +23,7 @@ class Order(Base):
     customer_id = Column(Integer, ForeignKey("customers.id", ondelete="CASCADE"), nullable=False, index=True)
     branch_id = Column(Integer, ForeignKey("branches.id", ondelete="CASCADE"), nullable=False, index=True)
     order_type = Column(String(50), nullable=False, default="dine_in")  # "dine_in", "takeaway", "delivery"
-    status = Column(String(50), nullable=False, default="placed")  # "placed", "preparing", "ready", "delivered", "cancelled"
+    status = Column(String(50), nullable=False, default="placed")  # "placed", "confirmed", "preparing", "ready", "delivered", "cancelled"
     delivery_address = Column(String(255), nullable=True)
     special_notes = Column(Text, nullable=True)
     total_amount = Column(Float, nullable=False, default=0.0)

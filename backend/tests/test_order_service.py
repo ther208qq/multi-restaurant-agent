@@ -169,13 +169,17 @@ async def test_list_orders_filters_by_status():
         await _cleanup(cat_id, order_id)
 
 
-async def test_update_status_placed_to_preparing_no_stock_change():
+async def test_update_status_confirm_then_preparing_no_stock_change():
     item_id, cat_id = await _make_item(stock=5)
     order_id = None
     try:
         order = await OrderService.place_order(1, 1, 'dine_in', [{'menu_item_id': item_id, 'quantity': 2}])
         order_id = order.id
-        await OrderService.update_status(order_id, 'preparing')
+        updated = await OrderService.update_status(order_id, 'confirmed')
+        assert updated.status == 'confirmed'
+        assert await _read_stock(item_id) == 3
+        updated = await OrderService.update_status(order_id, 'preparing')
+        assert updated.status == 'preparing'
         assert await _read_stock(item_id) == 3
     finally:
         await _cleanup(cat_id, order_id)

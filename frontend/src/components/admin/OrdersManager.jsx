@@ -44,6 +44,7 @@ export default function OrdersManager({ currentStaff, branches }) {
 
   const STATUS_LABELS = {
     placed: '已下单',
+    confirmed: '已确认',
     preparing: '制作中',
     ready: '已就绪',
     delivered: '已送达',
@@ -60,6 +61,8 @@ export default function OrdersManager({ currentStaff, branches }) {
     const label = STATUS_LABELS[status] || status;
     switch (status) {
       case 'placed':
+        return <span className="badge badge-info">{label}</span>;
+      case 'confirmed':
         return <span className="badge badge-info">{label}</span>;
       case 'preparing':
         return <span className="badge badge-warning">{label}</span>;
@@ -117,6 +120,7 @@ export default function OrdersManager({ currentStaff, branches }) {
             >
               <option value="">全部状态</option>
               <option value="placed">已下单</option>
+              <option value="confirmed">已确认</option>
               <option value="preparing">制作中</option>
               <option value="ready">已就绪</option>
               <option value="delivered">已送达</option>
@@ -234,6 +238,17 @@ export default function OrdersManager({ currentStaff, branches }) {
               {/* Action Buttons for Status Flow */}
               <div style={{ display: 'flex', gap: '6px', marginTop: '4px' }}>
                 {o.status === 'placed' && (
+                  <button
+                    disabled={updatingId === o.id}
+                    onClick={() => handleUpdateStatus(o.id, 'confirmed')}
+                    className="btn-primary btn-sm"
+                    style={{ flex: 1, justifyContent: 'center' }}
+                  >
+                    <Check size={14} /> 确认订单
+                  </button>
+                )}
+
+                {o.status === 'confirmed' && (
                   <button
                     disabled={updatingId === o.id}
                     onClick={() => handleUpdateStatus(o.id, 'preparing')}

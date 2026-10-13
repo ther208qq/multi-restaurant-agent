@@ -2,14 +2,19 @@
 
 Owns the transaction boundary and holds the single implementation of the order
 business rules shared by the staff/customer order APIs and the Agent ordering
-flow: price estimation, stock validation, atomic placement, status transitions
-and cancellation / un-cancellation stock reversal.
+flow: price estimation, stock validation, atomic placement, the order lifecycle
+(legal status transitions) and cancellation / un-cancellation stock reversal.
+
+Lifecycle (spec §9): ``placed -> confirmed -> preparing -> ready -> delivered``.
+``cancelled`` is reachable from any non-terminal status and restores the stock
+the order held; ``delivered`` is terminal. A cancelled order may be restored to
+``placed`` only (staff undoing a mistake), which atomically re-takes its stock.
 
 Raises domain exceptions (never HTTP types); the API maps them to status codes
 and the Agent turns them into user-facing replies.
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, FrozenSet, List, Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -20,12 +25,37 @@ from backend.app.exceptions import (
     NotFoundError,
     ValidationError,
 )
+from backend.app.labels import ORDER_STATUS_LABELS
 from backend.app.models.order import Order
 from backend.app.models.user import StaffUser
 from backend.app.repo.menu import MenuRepo
 from backend.app.repo.order import OrderRepo
 
-VALID_ORDER_STATUSES = ("placed", "preparing", "ready", "delivered", "cancelled")
+VALID_ORDER_STATUSES = (
+    "placed",
+    "confirmed",
+    "preparing",
+    "ready",
+    "delivered",
+    "cancelled",
+)
+
+# Legal status moves. Forward-only along the lifecycle, plus cancellation from
+# any non-terminal status and the single ``cancelled -> placed`` restore. A
+# status absent from the map (or an empty set) has no outgoing transitions.
+ORDER_TRANSITIONS: Dict[str, FrozenSet[str]] = {
+    "placed": frozenset({"confirmed", "cancelled"}),
+    "confirmed": frozenset({"preparing", "cancelled"}),
+    "preparing": frozenset({"ready", "cancelled"}),
+    "ready": frozenset({"delivered", "cancelled"}),
+    "delivered": frozenset(),
+    "cancelled": frozenset({"placed"}),
+}
+
+
+def _status_label(status: str) -> str:
+    """Chinese label for a status, falling back to the raw code."""
+    return ORDER_STATUS_LABELS.get(status, status)
 
 
 def _variant_delta(variant: Dict[str, Any]) -> float:
@@ -176,7 +206,15 @@ class OrderService:
 
     @staticmethod
     async def _apply_status_stock_effects(s, order: Order, new_status: str) -> None:
-        if order.status != 'cancelled' and new_status == 'cancelled':
+        """Move a cancelled order's stock, or take it back when restoring.
+
+        Called only for a legal move (``update_status`` has already checked the
+        transition matrix). Cancelling any non-terminal order returns its stock;
+        restoring ``cancelled -> placed`` re-takes it atomically, raising
+        :class:`ConflictError` if the stock has since been consumed elsewhere
+        (the order then stays cancelled -- the write is rolled back).
+        """
+        if new_status == 'cancelled':
             for item in order.items:
                 await MenuRepo.restore_stock(s, item.menu_item_id, order.branch_id, item.quantity)
         elif order.status == 'cancelled' and new_status == 'placed':
@@ -189,8 +227,6 @@ class OrderService:
             if failed:
                 unique = list(dict.fromkeys(failed))
                 raise ConflictError(f'无法恢复已取消的订单：以下菜品库存不足：{", ".join(unique)}。')
-        elif order.status == 'cancelled' and new_status != 'placed':
-            raise ValidationError("已取消的订单只能恢复为「已下单」状态。")
 
     @staticmethod
     async def update_status(
@@ -216,6 +252,11 @@ class OrderService:
                 raise ValidationError(f'无效的状态 {new_status}，必须是以下之一：{list(VALID_ORDER_STATUSES)}。')
             if new_status == order.status:
                 return order
+            if new_status not in ORDER_TRANSITIONS.get(order.status, frozenset()):
+                raise ValidationError(
+                    f'不允许将订单从「{_status_label(order.status)}」变更为'
+                    f'「{_status_label(new_status)}」。'
+                )
             await OrderService._apply_status_stock_effects(s, order, new_status)
             await OrderRepo.update_order_status(s, order, new_status)
             # ``updated_at`` is server-generated (``onupdate``), so SQLAlchemy
@@ -225,4 +266,4 @@ class OrderService:
             return order
 
 
-__all__ = ["OrderService", "VALID_ORDER_STATUSES"]
+__all__ = ["OrderService", "VALID_ORDER_STATUSES", "ORDER_TRANSITIONS"]

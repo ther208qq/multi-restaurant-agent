@@ -34,7 +34,7 @@ class OrderCreate(BaseModel):
 
 
 class OrderStatusUpdate(BaseModel):
-    status: str  # placed, preparing, ready, delivered, cancelled
+    status: str  # placed, confirmed, preparing, ready, delivered, cancelled
 
 
 class OrderResponse(BaseModel):

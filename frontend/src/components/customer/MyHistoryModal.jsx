@@ -35,11 +35,16 @@ export default function MyHistoryModal({ isOpen, onClose }) {
 
   if (!isOpen) return null;
 
+  // Shared by the orders tab and the reservations tab; a key present in either
+  // lifecycle must be listed so no status ever leaks its raw English code.
   const STATUS_LABELS = {
+    placed: '已下单',
     confirmed: '已确认',
+    preparing: '制作中',
     ready: '已就绪',
     delivered: '已送达',
-    preparing: '制作中',
+    seated: '已入座',
+    completed: '已完成',
     pending: '待处理',
     cancelled: '已取消',
   };
@@ -56,6 +61,8 @@ export default function MyHistoryModal({ isOpen, onClose }) {
       case 'confirmed':
       case 'ready':
       case 'delivered':
+      case 'seated':
+      case 'completed':
         return <span className="badge badge-success">{label}</span>;
       case 'preparing':
       case 'pending':

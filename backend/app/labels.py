@@ -14,6 +14,7 @@ ORDER_TYPE_LABELS = {
 
 ORDER_STATUS_LABELS = {
     "placed": "⏳ 已下单",
+    "confirmed": "📋 已确认",
     "preparing": "🍳 制作中",
     "ready": "🔔 待取餐/配送",
     "delivered": "✅ 已送达/已完成",

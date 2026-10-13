@@ -75,7 +75,8 @@ async def update_order_status(
     current_staff: StaffUser = Depends(get_current_staff),
     db: AsyncSession = Depends(get_db),
 ):
-    """Update order status (placed -> preparing -> ready -> delivered / cancelled)."""
+    """Update order status through the legal lifecycle (placed -> confirmed ->
+    preparing -> ready -> delivered, or cancelled from any non-terminal state)."""
     order = await OrderService.update_status(
         order_id,
         payload.status,

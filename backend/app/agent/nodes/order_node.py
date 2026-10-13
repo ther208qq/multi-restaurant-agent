@@ -97,7 +97,7 @@ async def order_node(state: Dict[str, Any]) -> Dict[str, Any]:
                     f"🎉 下单成功！您的订单 #{order_id} 已提交。\n\n"
                     f"• 用餐方式：{order_type}\n"
                     f"• 订单金额：${total:.2f}\n"
-                    f"• 订单状态：已下单（即将开始制作）\n\n"
+                    f"• 订单状态：已下单（等待门店确认）\n\n"
                     f"请在取餐或送餐时以现金或银行卡付款。感谢您的光临！"
                 )
                 return {
