@@ -13,7 +13,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from backend.app.models.reservation import Reservation
+from backend.app.models.reservation import OCCUPYING_RESERVATION_STATUSES, Reservation
 
 
 class ReservationRepo:
@@ -62,6 +62,7 @@ class ReservationRepo:
         with_table: bool = False,
         with_customer: bool = False,
         with_branch: bool = False,
+        for_update: bool = False,
     ) -> Optional[Reservation]:
         stmt = select(Reservation).where(Reservation.id == reservation_id)
         options = []
@@ -73,6 +74,11 @@ class ReservationRepo:
             options.append(selectinload(Reservation.branch))
         if options:
             stmt = stmt.options(*options)
+        if for_update:
+            # Serialise concurrent edits of the *same* booking (two staff members
+            # rescheduling it at once); cross-booking races are settled by the
+            # exclusion constraint instead.
+            stmt = stmt.with_for_update()
         res = await session.execute(stmt)
         return res.scalar_one_or_none()
 
@@ -116,24 +122,34 @@ class ReservationRepo:
         return list(res.scalars().all())
 
     @staticmethod
-    async def has_overlapping_confirmed(
+    async def has_overlapping_active(
         session: AsyncSession,
         table_id: int,
         start_time: datetime,
         end_time: datetime,
+        *,
+        exclude_reservation_id: Optional[int] = None,
     ) -> bool:
-        """True when a confirmed booking on ``table_id`` overlaps the slot.
+        """True when an occupying booking on ``table_id`` overlaps the slot.
 
-        Encodes ``existing_start < new_end AND existing_end > new_start`` -- the
+        Encodes ``existing_start < new_end AND existing_end > new_start`` and
+        counts every *occupying* status (pending / confirmed / seated) -- the
         application-side counterpart to the DB exclusion constraint, used to pick
-        a free table before attempting the insert.
+        a free table before attempting a write. ``exclude_reservation_id`` lets a
+        booking move to a new slot without colliding with its own current row.
         """
-        stmt = select(Reservation).where(
-            Reservation.table_id == table_id,
-            Reservation.status == "confirmed",
-            Reservation.start_time < end_time,
-            Reservation.end_time > start_time,
+        stmt = (
+            select(Reservation.id)
+            .where(
+                Reservation.table_id == table_id,
+                Reservation.status.in_(OCCUPYING_RESERVATION_STATUSES),
+                Reservation.start_time < end_time,
+                Reservation.end_time > start_time,
+            )
+            .limit(1)
         )
+        if exclude_reservation_id is not None:
+            stmt = stmt.where(Reservation.id != exclude_reservation_id)
         res = await session.execute(stmt)
         return res.scalar_one_or_none() is not None
 
@@ -142,6 +158,31 @@ class ReservationRepo:
         session: AsyncSession, reservation: Reservation, values: Dict[str, Any]
     ) -> Reservation:
         for key, value in values.items():
+            setattr(reservation, key, value)
+        await session.flush()
+        return reservation
+
+    @staticmethod
+    async def reschedule_reservation(
+        session: AsyncSession,
+        reservation: Reservation,
+        *,
+        start_time: datetime,
+        end_time: datetime,
+        duration_minutes: int,
+        values: Optional[Dict[str, Any]] = None,
+    ) -> Reservation:
+        """Move a booking to a new slot, keeping ``booking_window`` in step.
+
+        ``booking_window`` is the column the exclusion constraint compares, so it
+        has to be rewritten together with the slot; both land in the same UPDATE,
+        which means the constraint always sees a consistent row.
+        """
+        reservation.start_time = start_time
+        reservation.end_time = end_time
+        reservation.duration_minutes = duration_minutes
+        reservation.booking_window = func.tstzrange(start_time, end_time, "[)")
+        for key, value in (values or {}).items():
             setattr(reservation, key, value)
         await session.flush()
         return reservation

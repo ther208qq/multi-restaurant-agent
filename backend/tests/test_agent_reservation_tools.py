@@ -42,7 +42,7 @@ def _reservation():
     table = SimpleNamespace(label='T1', seating_area='indoor')
     branch = SimpleNamespace(name='Downtown')
     return SimpleNamespace(
-        id=42, status='confirmed', branch=branch, table=table, start_time=start
+        id=42, status='pending', branch=branch, table=table, start_time=start
     )
 
 
@@ -64,7 +64,7 @@ async def test_success_delegates_and_returns_legacy_shape(monkeypatch):
     )
     assert result['success'] is True
     assert result['reservation_id'] == 42
-    assert result['status'] == 'confirmed'
+    assert result['status'] == 'pending'
     assert result['branch_name'] == 'Downtown'
     assert result['table_label'] == 'T1'
     assert result['seating_area'] == 'indoor'

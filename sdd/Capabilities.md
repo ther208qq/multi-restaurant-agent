@@ -1,0 +1,155 @@
+# 能力清单：前端操作 & Agent 工具（2026-10-12 整理）
+
+> 用途：查阅「界面能点什么」与「Agent 能调什么」，以及两者如何落到底层接口。
+> 相关：待修问题见 [`OpenItems.md`](./OpenItems.md) 第六节；分层约束见 `../ARCHITECTURE.md`。
+
+## 0. 前提：唯一交易入口是聊天
+
+**前端没有任何「下单」或「订位」表单。** 订单与预订只能由 Agent 经 `POST /api/chat` 创建，返回 `order_id` / `reservation_id`。所以 Agent 不是辅助功能，而是核心交易通道。
+
+所有 HTTP 经 `frontend/src/api.js` 的 `request()` 封装，前缀 `/api`，按 `customer` / `staff` 自动附带 `Authorization: Bearer`。会话只靠 localStorage 恢复，**不校验 token**（见 OpenItems #3）。
+
+# 一、前端能力
+
+## 1. 顾客侧
+
+| 界面 | 操作 | 接口 |
+|---|---|---|
+| 导航栏 | 切换顾客/后台视图、登录注册、打开「我的记录」、退出 | 无（本地状态 / 清 localStorage） |
+| 门店选择 | 列出营业中门店；下拉选中（联动刷新菜单与 FAQ） | `GET /branches` |
+| 菜单浏览 | 按分类筛「全部/披萨/…」、查看库存与售罄标记 | `GET /branches/{id}/menu`（纯前端筛选） |
+| ↳「让 AI 下单」 | 预填 `我想点 1 份 {菜名}` 到聊天框 | 无直接请求，最终走 `POST /chat` |
+| 聊天 | 自由输入；5 个固定快捷词；显示订单/预订徽章；重置会话 | `POST /chat`（body `{message, branch_id}`） |
+| 登录 / 注册 | 邮箱密码登录；注册（姓名/邮箱/电话可选/密码） | `POST /auth/login`、`POST /auth/register` |
+| 我的记录 | 「我的订单」/「我的预订」双 tab + 刷新 | `GET /orders/me`、`GET /reservations/me` |
+
+**5 个聊天快捷词**（`ChatWidget.jsx` 固定字符串）：
+`菜单上有什么？` · `今晚 7 点订一张 4 人桌` · `点 2 份玛格丽特披萨` · `你们在哪里？营业时间是？` · `查一下我最近订单的状态`
+
+聊天**必须登录**：未登录时点下单或快捷词只弹登录框，不发请求。
+
+## 2. 员工 / 管理侧
+
+| 界面 | 操作 | 接口 |
+|---|---|---|
+| 员工登录 | 用户名密码登录；界面提示种子账号 | `POST /staff/login` |
+| 实时订单 | 按门店/状态筛选、刷新 | `GET /staff/orders?branch_id=&status=` |
+| ↳ 状态流转 | 已下单→开始制作→标记已就绪→完成/已送达 | `PATCH /staff/orders/{id}/status` |
+| ↳ 取消订单 | 非终态可取消（带 `confirm()`） | 同上 `{status:'cancelled'}` |
+| 餐桌预订 | 按门店/状态/日期筛选、刷新 | `GET /staff/reservations?branch_id=&status=&date=` |
+| ↳ 状态流转 | 待确认→确认→入座→完成；可取消；可恢复已取消 | `PATCH /staff/reservations/{id}` |
+| ↳ 改约 | 改时间/人数/时长/座位区（连带重新选桌） | 同上（`start_time` / `party_size` / `duration_minutes` / `seating_area_preference`） |
+| ↳ 查空桌 | 按门店+日期+时间+人数列可订餐桌 | `GET /staff/reservations/availability` |
+| ↳ 改派餐桌 | 弹窗选新餐桌后确认（已入座也可改派） | `GET /staff/branches/tables` + `PATCH /staff/reservations/{id}` `{table_id}` |
+| 菜单与库存 | 在售/停售切换、改库存、快捷 +10/+50、清零 | `PATCH /staff/menu/items/{id}`、`PUT /staff/menu/stock` |
+| ↳ 新建 | 新建分类；新建菜品（含初始库存） | `POST /staff/menu/categories`、`POST /staff/menu/items` |
+| 门店与餐桌 | 查看餐桌；启用/停用；添加餐桌 | `GET/PATCH/POST /staff/branches/tables` |
+
+**订单状态机**：`placed → confirmed → preparing → ready → delivered`，任意非终态可 `cancelled`（`cancelled → placed` 仅员工撤销误操作）。
+**预订状态机**：`pending → confirmed → seated → completed`，任意非终态可 `cancelled`，`cancelled → pending` 可恢复（恢复前会校验原时段是否仍空闲）。
+**占用语义**：`pending` / `confirmed` / `seated` 三种状态都**占住餐桌**——数据库排他约束与应用层查空桌用的是同一套「占用状态」；只有取消或完成才释放时段。
+
+## 3. 前端缺口（有 API 无界面）
+
+| 能力 | 接口 | 现状 |
+|---|---|---|
+| 新建门店 | `POST /staff/branches` | `api.js` 有 `createBranch`，**无任何 UI** |
+| 编辑门店 | `PATCH /staff/branches/{id}` | 有 `updateBranch`，**无 UI**。名称/地址/营业时间/电话/FAQ 均改不了 |
+| 会话校验 | `GET /auth/me`、`GET /staff/me` | 定义了但**无人调用**（死代码） |
+| 列分类 | `GET /staff/menu/categories` | 定义了但无人调用，`MenuManager` 改用公开的 `GET /branches/{id}/menu` |
+| 列门店（员工） | `GET /staff/branches` | 定义了但无人调用，`AdminLayout` 复用公开 `GET /branches` |
+
+其他：菜品只能改「是否在售」与库存，**改不了名称/描述/价格/规格**；分类、菜品、餐桌**均无删除接口**；后台**不能手工建单或建预订**。新部署只能依赖种子数据。
+
+
+---
+
+# 二、Agent 能力
+
+## 4. 图结构（单趟路由，非循环）
+
+    entry -> intent_router
+                |
+    +-----------+-----------+---------+--------+
+    v           v           v         v        v
+  branch_    order     reservation  status    faq
+  selector
+
+每个分支节点均直连 END。
+
+多轮填槽不靠图内循环，而是靠 Postgres checkpointer 持久化草稿，下一轮重新灌回 state。
+线程 id 为 `customer_{id}_branch_{bid}`，**记忆按门店隔离**，同一会话内换不了门店。
+
+**意图路由**先走关键词正则快路径，未命中才调 LLM。优先级 status > order > reservation > faq
+（status 排最前，避免「我的订单在哪」被当成重新下单）。有待处理草稿时：本条是取消词则清草稿；
+未命中其他意图则继续原流程；命中新意图则切换但**保留旧草稿**（`DRAFT_TTL_MINUTES = 15` 过期）。
+
+## 5. 节点 → 工具
+
+| 节点 | 工具 | 决策要点 |
+|---|---|---|
+| `branch_selector` | 无（直调 `BranchService`） | 按 id / 序号 / 全名 / 名称词匹配门店；未命中则列出门店 |
+| `order_node` | `get_branch_menu_data`、`format_menu_for_prompt`、`create_order_atomic`、`OrderService.preview_order` | 菜单浏览 → LLM 抽菜品 → 正则兜底 → 库存预览 → **摘要待确认**；只有用户回「确认」才落库 |
+| `reservation_node` | `check_table_availability_and_book` | 抽人数/日期/时间/区域（含中文「后天 7 点半」等正则兜底）→ **落库为 `pending`**，回复「预订已提交，等待门店确认」；确认由员工在后台完成 |
+| `status_node` | 无（直调两个 Service） | 只查本人 + 本门店最近 3 单 3 订，只读 |
+| `faq_node` | `get_branch_faq` | 营业时间/地址/电话/停车/着装/支付/配送范围 |
+
+## 6. 工具签名
+
+所有工具都是**薄适配层**：不碰 SQL、不开 session，一律下沉到 `service/`。
+
+    # tools/menu_tools.py
+    async def get_branch_menu_data(branch_id: int) -> Dict[str, Any]
+    async def format_menu_for_prompt(branch_id: int) -> str
+
+    # tools/order_tools.py
+    async def create_order_atomic(
+        customer_id: int, branch_id: int,
+        order_type: str,                # dine_in | takeaway | delivery
+        items: List[Dict[str, Any]],    # menu_item_id, quantity, selected_variants?, item_notes?
+        delivery_address: Optional[str] = None,
+        special_notes: Optional[str] = None,
+    ) -> Dict[str, Any]
+
+    # tools/table_tools.py
+    async def check_table_availability_and_book(
+        customer_id: int, branch_id: int, start_time: datetime,
+        party_size: int, duration_minutes: int = 90,
+        seating_area: Optional[str] = "indoor", notes: Optional[str] = None,
+    ) -> Dict[str, Any]
+
+    # tools/faq_tools.py
+    async def get_branch_faq(branch_id: int) -> Dict[str, Any]
+
+## 7. 订单 vs 订位：关键差异
+
+**订单是两步的**：先出摘要 + 报价，等用户回「确认」才写库（落库为 `placed`）。
+**订位是直接落库的**：抽齐字段就写库为 `pending`，**顾客侧没有确认环节**；「预订确认」是**员工侧**的动作（`pending → confirmed`），之后才入座、完成。
+
+**并发保护不同**：订单靠行锁原子扣库存；订位靠 PostgreSQL 排除约束（GIST，覆盖 `pending`/`confirmed`/`seated`），撞车抛
+`ReservationRaceError` 并回中文提示；改约/改派还会先探测目标餐桌并给出更具体的提示。
+
+## 8. Agent 做不到的事
+
+- **不能取消已下单的订单。** `OrderService.update_status` 支持 `cancelled` 且会回滚库存，但只挂在员工路由上，Agent 无对应工具。聊天里的「取消」只能丢弃**未落库的草稿**。
+- **不能改或取消预订。** `ReservationService.update_reservation`（含改约、改派餐桌、状态流转）是员工专用；落库后顾客只能新建一笔。
+- **不收付款。** 一律回复「到店/送达时现金或刷卡」，Agent 从不调用支付服务。
+- **改不了餐桌、换不了门店**（线程按门店隔离）。
+- **只能看自己的数据**，没有按单号查他人订单的能力。
+- **确认措辞有限**：只认「确认/下单/好的/就这些」等词，换个说法可能不被识别。
+
+## 9. LLM 抽象与降级
+
+节点/工具统一经 `agent/llm.py` 的 `llm_client.generate(prompt, system_prompt, temperature=0.1)`，
+由 `build_provider()` 按 `LLM_PROVIDER` 选择：
+
+- `OllamaClient`（默认）—— POST `{OLLAMA_BASE_URL}/api/chat`。
+- `OpenAICompatibleClient` —— 官方 `AsyncOpenAI` SDK，覆盖 OpenAI / DeepSeek / Qwen / Moonshot / Groq / OpenRouter / vLLM / LM Studio，经 `OPENAI_BASE_URL` / `OPENAI_API_KEY` / `OPENAI_MODEL` 配置。`max_retries=2`，超时 45s。
+
+两者都用 `trust_env_for(base_url)` 让**回环地址绕过系统代理**（本机代理对 localhost 端口回 502）。
+
+**降级（`rule_based_fallback`）**：HTTP 非 200、异常、空回复、或 `OPENAI_API_KEY` 为空时触发。
+
+> ⚠️ 这里有个实质缺陷，见 OpenItems #2：降级用英文字面量 `"classify intent"` 判断是否走意图分类分支，
+> 而真实节点发的是**中文**提示，所以断网时路由拿不到 JSON、意图落到 `general` 只回问候语。
+> **离线时关键词快路径是唯一可靠的分类器**；订单/预订节点则退到各自的**正则兜底**。

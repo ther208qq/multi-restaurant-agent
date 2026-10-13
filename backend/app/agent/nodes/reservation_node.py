@@ -1,4 +1,4 @@
-"""Reservation Flow LangGraph Node with Auto-Confirm and DB-Level Exclusion Guard."""
+"""Reservation Flow LangGraph Node: collect the slot, then book it as pending."""
 
 from datetime import datetime, timedelta, timezone
 import json
@@ -7,13 +7,13 @@ from typing import Any, Dict
 from langchain_core.messages import AIMessage
 
 from backend.app.agent.flows import stamp
-from backend.app.agent.labels import seating_area_label
+from backend.app.agent.labels import RESERVATION_STATUS_LABELS, seating_area_label
 from backend.app.agent.llm import extract_json_from_text, llm_client
 from backend.app.agent.tools.table_tools import check_table_availability_and_book
 
 
 async def reservation_node(state: Dict[str, Any]) -> Dict[str, Any]:
-    """Handle table booking with real-time table availability check and auto-confirm."""
+    """Handle table booking: check real-time availability and book the table."""
     branch_id = state.get("branch_id")
     customer_id = state.get("customer_id")
     messages = state.get("messages", [])
@@ -138,14 +138,14 @@ async def reservation_node(state: Dict[str, Any]) -> Dict[str, Any]:
             "messages": [AIMessage(content=prompt_reply)],
         }
 
-    # 3. All info collected: parse datetime and check availability + auto-confirm
+    # 3. All info collected: parse datetime, check availability and book as pending
     try:
         start_datetime = datetime.strptime(f"{date_str} {time_str}", "%Y-%m-%d %H:%M").replace(tzinfo=timezone.utc)
     except ValueError:
         # Fallback to evening time if malformed
         start_datetime = datetime.now(timezone.utc).replace(hour=19, minute=0, second=0, microsecond=0)
 
-    # Call availability and auto-confirm tool (guarded by PostgreSQL exclusion constraint)
+    # Call availability and booking tool (guarded by PostgreSQL exclusion constraint)
     res_result = await check_table_availability_and_book(
         customer_id=customer_id,
         branch_id=branch_id,
@@ -163,16 +163,18 @@ async def reservation_node(state: Dict[str, Any]) -> Dict[str, Any]:
         dt_display = res_result["date"]
         tm_display = res_result["time"]
         branch_name = res_result["branch_name"]
+        status = res_result["status"]
+        status_label = RESERVATION_STATUS_LABELS.get(status, status)
 
         reply = (
-            f"✅ **预订成功！**\n\n"
+            f"⏳ **预订已提交，等待门店确认**\n\n"
             f"• 预订编号：#{res_id}\n"
             f"• 门店：{branch_name}\n"
             f"• 餐桌：{table_label}（{area}）\n"
             f"• 时间：{dt_display} {tm_display}（90 分钟）\n"
             f"• 人数：{party_size} 位\n"
-            f"• 状态：已确认\n\n"
-            f"期待您的光临！您可以随时查看或管理本次预订。"
+            f"• 状态：{status_label}\n\n"
+            f"门店确认后即可到店；您也可以在「我的记录」中查看本次预订。"
         )
         return {
             **state,

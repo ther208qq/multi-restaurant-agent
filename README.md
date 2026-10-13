@@ -27,13 +27,13 @@ The interesting engineering problem this project solves isn't "wire an LLM to a 
 **👤 Customer side**
 - 💬 Conversational ordering and table booking via natural language
 - 📜 Live menu browsing with real-time per-branch stock and sold-out states
-- ✅ Auto-confirmed reservations with a real double-booking guard
+- ✅ Table reservations with a staff-confirmed lifecycle (`pending → confirmed → seated → completed`) and a real double-booking guard
 - 🔐 Account system (JWT-based) with order/reservation history
 - 🏢 Multi-branch selection with branch-specific hours, address, and policies
 
 **👨‍🍳 Staff side**
 - 📋 Live order board with status workflow (`placed → preparing → ready → delivered`, plus cancel/un-cancel with correct stock reversal)
-- 📅 Reservation management, including manual table reassignment
+- 📅 Reservation management: availability lookup, confirm / seat / complete / cancel, reschedule and manual table reassignment
 - ✏️ Menu and per-branch stock editor
 - ⚙️ Branch and table configuration
 
@@ -89,7 +89,7 @@ npm run dev
 pytest -v
 ```
 
-Covers: JWT auth flows, atomic stock decrement under concurrency, the PostgreSQL exclusion constraint rejecting overlapping reservations, and order cancel/un-cancel stock reversal.
+Covers: JWT auth flows, atomic stock decrement under concurrency, reservation lifecycle transitions and rescheduling, the PostgreSQL exclusion constraint rejecting overlapping reservations in any occupying status, and order cancel/un-cancel stock reversal.
 
 ## 🚧 Known limitations
 

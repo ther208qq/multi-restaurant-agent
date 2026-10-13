@@ -55,6 +55,7 @@ async def test_tomorrow_resolves_to_the_actual_next_day(monkeypatch):
         return {
             "success": True,
             "reservation_id": 1,
+            "status": "pending",
             "table_label": "T1 (Indoor)",
             "seating_area": "indoor",
             "date": "ignored",
@@ -77,6 +78,8 @@ async def test_tomorrow_resolves_to_the_actual_next_day(monkeypatch):
     assert booked["start_time"].hour == 19
     assert booked["party_size"] == 4
     assert out["reservation_id"] == 1
+    # A new booking is pending staff confirmation, and the reply says so.
+    assert "待确认" in out["last_reply"]
 
 
 async def test_today_resolves_to_today(monkeypatch):
@@ -88,6 +91,7 @@ async def test_today_resolves_to_today(monkeypatch):
         return {
             "success": True,
             "reservation_id": 2,
+            "status": "pending",
             "table_label": "R1 (Roof)",
             "seating_area": "rooftop",
             "date": "ignored",

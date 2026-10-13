@@ -59,14 +59,14 @@ graph TD
 
 Two invariants in this system cannot be violated even under concurrent requests or an LLM making a bad call, because they're enforced by the database engine itself:
 
-**No double-booked tables.** Reservations store a `TSTZRANGE` (`booking_window`) and the table carries a PostgreSQL exclusion constraint:
+**No double-booked tables.** Reservations store a `TSTZRANGE` (`booking_window`) and the table carries a PostgreSQL exclusion constraint covering every *occupying* status:
 ```sql
 EXCLUDE USING gist (
     table_id WITH =,
     booking_window WITH &&
-) WHERE (status = 'confirmed')
+) WHERE (status IN ('pending', 'confirmed', 'seated'))
 ```
-Two confirmed reservations for the same table with overlapping time ranges cannot both exist — the second `INSERT` fails at the database level with an `IntegrityError`, which the reservation tool catches and turns into a graceful "that table was just taken, here are alternatives" response. This guarantee holds regardless of application-level race conditions, retries, or bugs in the agent's reasoning.
+Two occupying reservations for the same table with overlapping time ranges cannot both exist — the second `INSERT` fails at the database level with an `IntegrityError`, which the reservation tool catches and turns into a graceful "that table was just taken, here are alternatives" response. A booking starts `pending` (the customer waits for staff confirmation), but it already holds its table: otherwise a pending booking — or an already-seated party — could be double-booked. Cancelling or completing a booking drops it out of the set and releases the slot. This guarantee holds regardless of application-level race conditions, retries, or bugs in the agent's reasoning.
 
 **No overselling stock.** Order placement uses an atomic conditional update rather than a check-then-write:
 ```sql

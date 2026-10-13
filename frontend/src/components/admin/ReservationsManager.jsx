@@ -73,6 +73,7 @@ export default function ReservationsManager({ currentStaff, branches }) {
   };
 
   const STATUS_LABELS = {
+    pending: '待确认',
     confirmed: '已确认',
     seated: '已入座',
     completed: '已完成',
@@ -82,6 +83,8 @@ export default function ReservationsManager({ currentStaff, branches }) {
   const getStatusBadge = (status) => {
     const label = STATUS_LABELS[status] || status;
     switch (status) {
+      case 'pending':
+        return <span className="badge badge-warning">{label}</span>;
       case 'confirmed':
         return <span className="badge badge-success">{label}</span>;
       case 'seated':
@@ -137,6 +140,7 @@ export default function ReservationsManager({ currentStaff, branches }) {
               style={{ padding: '6px 12px', borderRadius: '6px', border: '1px solid var(--surface-border)' }}
             >
               <option value="">全部状态</option>
+              <option value="pending">待确认</option>
               <option value="confirmed">已确认</option>
               <option value="seated">已入座</option>
               <option value="completed">已完成</option>
@@ -234,6 +238,17 @@ export default function ReservationsManager({ currentStaff, branches }) {
                   <td>{getStatusBadge(r.status)}</td>
                   <td>
                     <div style={{ display: 'flex', gap: '4px' }}>
+                      {r.status === 'pending' && (
+                        <button
+                          onClick={() => handleUpdateStatus(r.id, 'confirmed')}
+                          className="btn-primary btn-sm"
+                          style={{ padding: '4px 8px', fontSize: '0.75rem' }}
+                          title="确认预订"
+                        >
+                          <CheckCircle2 size={13} /> 确认
+                        </button>
+                      )}
+
                       {r.status === 'confirmed' && (
                         <button
                           onClick={() => handleUpdateStatus(r.id, 'seated')}

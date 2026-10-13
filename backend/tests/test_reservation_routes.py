@@ -131,11 +131,11 @@ async def test_list_reservations_admin_filters_by_branch_and_status(
         assert by_branch.status_code == 200
         assert any(r['id'] == r1.id for r in by_branch.json())
 
-        confirmed = await async_client.get(
-            f'/api/staff/reservations?branch_id={b1}&status=confirmed',
+        pending = await async_client.get(
+            f'/api/staff/reservations?branch_id={b1}&status=pending',
             headers=staff_auth_headers,
         )
-        assert any(r['id'] == r1.id for r in confirmed.json())
+        assert any(r['id'] == r1.id for r in pending.json())
 
         seated = await async_client.get(
             f'/api/staff/reservations?branch_id={b1}&status=seated',
@@ -175,6 +175,15 @@ async def test_patch_reservation_updates_status_and_notes(
     customer = await _make_customer()
     try:
         r1 = await _book(b1, customer, days=325, hour=18)
+        # A fresh booking is pending: confirm it first, then seat it.
+        confirmed = await async_client.patch(
+            f'/api/staff/reservations/{r1.id}',
+            json={'status': 'confirmed'},
+            headers=staff_auth_headers,
+        )
+        assert confirmed.status_code == 200
+        assert confirmed.json()['status'] == 'confirmed'
+
         resp = await async_client.patch(
             f'/api/staff/reservations/{r1.id}',
             json={'status': 'seated', 'notes': 'window seat'},
@@ -230,3 +239,96 @@ async def test_patch_reservation_forbidden_for_other_branch(async_client):
     finally:
         await _cleanup(b1, customer, staff_id)
         await _cleanup(b2)
+
+
+async def test_patch_reservation_reschedules_the_booking(async_client, staff_auth_headers):
+    """Task17: the staff API can move a booking to a new slot."""
+    b1 = await _make_branch('R9')
+    customer = await _make_customer()
+    try:
+        r1 = await _book(b1, customer, days=328, hour=18)
+        new_start = _slot(328, 21)
+        resp = await async_client.patch(
+            f'/api/staff/reservations/{r1.id}',
+            json={'start_time': new_start.isoformat(), 'party_size': 4},
+            headers=staff_auth_headers,
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body['party_size'] == 4
+        assert datetime.fromisoformat(body['start_time']).hour == 21
+        assert body['status'] == 'pending'
+    finally:
+        await _cleanup(b1, customer)
+
+
+async def test_patch_reservation_rejects_illegal_transition(async_client, staff_auth_headers):
+    b1 = await _make_branch('R10')
+    customer = await _make_customer()
+    try:
+        r1 = await _book(b1, customer, days=329, hour=18)
+        resp = await async_client.patch(
+            f'/api/staff/reservations/{r1.id}',
+            json={'status': 'completed'},  # pending must be confirmed/seated first
+            headers=staff_auth_headers,
+        )
+        assert resp.status_code == 400
+    finally:
+        await _cleanup(b1, customer)
+
+
+async def test_table_availability_requires_auth(async_client):
+    resp = await async_client.get(
+        '/api/staff/reservations/availability?branch_id=1&date=2030-01-01&time=19:00'
+    )
+    assert resp.status_code == 401
+
+
+async def test_table_availability_lists_bookable_tables(
+    async_client, staff_auth_headers
+):
+    b1 = await _make_branch('R11')
+    try:
+        target = _slot(330, 18)
+        resp = await async_client.get(
+            f'/api/staff/reservations/availability?branch_id={b1}'
+            f'&date={target.strftime("%Y-%m-%d")}&time={target.strftime("%H:%M")}'
+            f'&party_size=4',
+            headers=staff_auth_headers,
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert [t['label'] for t in body] == ['R11']
+        assert body[0]['seating_area'] == 'indoor'
+        assert body[0]['capacity'] == 4
+
+        # Nothing fits a party of 10 at that branch.
+        too_big = await async_client.get(
+            f'/api/staff/reservations/availability?branch_id={b1}'
+            f'&date={target.strftime("%Y-%m-%d")}&time={target.strftime("%H:%M")}'
+            f'&party_size=10',
+            headers=staff_auth_headers,
+        )
+        assert too_big.json() == []
+    finally:
+        await _cleanup(b1)
+
+
+async def test_table_availability_rejects_bad_datetime(async_client, staff_auth_headers):
+    b1 = await _make_branch('R12')
+    try:
+        resp = await async_client.get(
+            f'/api/staff/reservations/availability?branch_id={b1}&date=not-a-date&time=19:00',
+            headers=staff_auth_headers,
+        )
+        assert resp.status_code == 400
+    finally:
+        await _cleanup(b1)
+
+
+async def test_table_availability_unknown_branch_is_404(async_client, staff_auth_headers):
+    resp = await async_client.get(
+        '/api/staff/reservations/availability?branch_id=999999&date=2030-01-01&time=19:00',
+        headers=staff_auth_headers,
+    )
+    assert resp.status_code == 404

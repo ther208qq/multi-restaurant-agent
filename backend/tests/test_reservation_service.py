@@ -71,7 +71,7 @@ async def _cleanup(branch_id, customer_id=None):
             await s.execute(delete(Customer).where(Customer.id == customer_id))
 
 
-async def test_book_table_auto_confirms_and_assigns_table():
+async def test_book_table_records_pending_and_assigns_table():
     branch_id, table_ids = await _make_branch([("I1", "indoor", 2)])
     try:
         reservation = await ReservationService.book_table(
@@ -81,7 +81,8 @@ async def test_book_table_auto_confirms_and_assigns_table():
             party_size=2,
             seating_area="indoor",
         )
-        assert reservation.status == "confirmed"
+        # A booking holds its table but waits for staff confirmation.
+        assert reservation.status == "pending"
         assert reservation.table_id == table_ids[0]
         assert reservation.branch.name == "__rs_branch"
         assert reservation.table.label == "I1"
@@ -186,7 +187,7 @@ async def test_list_reservations_scopes_and_filters():
         assert len(mine) == 2
 
         by_status = await ReservationService.list_reservations(
-            customer_id=customer_id, status="confirmed"
+            customer_id=customer_id, status="pending"
         )
         assert len(by_status) == 2
 
@@ -247,6 +248,9 @@ async def test_update_reservation_applies_changes():
         reservation = await ReservationService.book_table(
             customer_id=customer_id, branch_id=branch_id,
             start_time=_slot(days=405, hour=18), party_size=2,
+        )
+        await ReservationService.update_reservation(
+            reservation.id, {"status": "confirmed"}, staff=_staff(branch_id)
         )
         updated = await ReservationService.update_reservation(
             reservation.id,

@@ -253,9 +253,14 @@ export default function MyHistoryModal({ isOpen, onClose }) {
                     <span>
                       📅 {new Date(r.start_time).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}
                     </span>
+                    {r.status === 'pending' && (
+                      <span style={{ color: '#b45309', display: 'flex', alignItems: 'center', gap: '4px', fontWeight: 600 }}>
+                        <Clock size={13} /> 等待门店确认
+                      </span>
+                    )}
                     {r.status === 'confirmed' && (
                       <span style={{ color: '#15803d', display: 'flex', alignItems: 'center', gap: '4px', fontWeight: 600 }}>
-                        <CheckCircle2 size={13} /> 已自动确认
+                        <CheckCircle2 size={13} /> 已确认
                       </span>
                     )}
                   </div>

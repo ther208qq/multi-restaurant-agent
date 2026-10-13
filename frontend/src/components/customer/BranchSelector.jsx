@@ -77,7 +77,7 @@ export default function BranchSelector({ branches, selectedBranchId, onSelectBra
             }}
           >
             <ShieldCheck size={14} />
-            <span>预订自动确认已开启</span>
+            <span>预订提交后由门店确认</span>
           </div>
         </div>
       )}

@@ -1,8 +1,8 @@
-"""Tests for Auto-Confirm Reservations and PostgreSQL GIST Exclusion Double-Booking Guard."""
+"""Tests for Pending Reservations and PostgreSQL GIST Exclusion Double-Booking Guard."""
 
 from datetime import datetime, timedelta, timezone
 import pytest
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 
 from backend.app.agent.tools.table_tools import check_table_availability_and_book
@@ -12,8 +12,8 @@ from backend.app.models.reservation import Reservation
 
 
 @pytest.mark.asyncio
-async def test_reservation_auto_confirmation():
-    """Verify that requesting a free table automatically confirms without pending status."""
+async def test_reservation_is_recorded_pending():
+    """Booking a free table holds it, but waits for staff confirmation."""
     # Book for tomorrow 7:00 PM
     tomorrow_evening = (datetime.now(timezone.utc) + timedelta(days=1)).replace(
         hour=19, minute=0, second=0, microsecond=0
@@ -41,7 +41,7 @@ async def test_reservation_auto_confirmation():
     )
 
     assert result["success"] is True
-    assert result["status"] == "confirmed"
+    assert result["status"] == "pending"
     assert result["table_label"] is not None
     assert result["reservation_id"] is not None
 
@@ -110,7 +110,98 @@ async def test_database_level_exclusion_constraint():
             session.add(res2)
             await session.commit()
 
-    assert "no_overlapping_confirmed_table_reservations" in str(exc_info.value) or "exclusion" in str(exc_info.value).lower()
+    assert "no_overlapping_active_table_reservations" in str(exc_info.value) or "exclusion" in str(exc_info.value).lower()
+
+
+@pytest.mark.asyncio
+async def test_database_level_exclusion_covers_every_occupying_status():
+    """A pending / seated booking blocks its table exactly like a confirmed one.
+
+    The constraint used to cover ``status = 'confirmed'`` only, which let a
+    pending booking (and an already-seated party!) be double-booked.
+    """
+    async with AsyncSessionLocal() as session:
+        table = (
+            await session.execute(select(Table).where(Table.branch_id == 1))
+        ).scalars().first()
+        assert table is not None
+
+    base_time = (datetime.now(timezone.utc) + timedelta(days=7)).replace(
+        hour=20, minute=0, second=0, microsecond=0
+    )
+    end_time = base_time + timedelta(minutes=90)
+
+    def _guard(**overrides):
+        values = dict(
+            customer_id=1,
+            branch_id=1,
+            table_id=table.id,
+            party_size=2,
+            start_time=base_time,
+            end_time=end_time,
+            duration_minutes=90,
+            status="pending",
+            booking_window=func.tstzrange(base_time, end_time, "[)"),
+        )
+        values.update(overrides)
+        return Reservation(**values)
+
+    try:
+        async with AsyncSessionLocal() as session:
+            await session.execute(
+                delete(Reservation).where(
+                    Reservation.table_id == table.id,
+                    Reservation.start_time < end_time,
+                    Reservation.end_time > base_time,
+                )
+            )
+            session.add(_guard(status="pending"))
+            await session.commit()
+
+        # Any occupying status colliding with the pending booking is rejected.
+        for status in ("pending", "confirmed", "seated"):
+            overlapping_start = base_time + timedelta(minutes=30)
+            with pytest.raises(IntegrityError):
+                async with AsyncSessionLocal() as session:
+                    session.add(
+                        _guard(
+                            status=status,
+                            start_time=overlapping_start,
+                            end_time=overlapping_start + timedelta(minutes=90),
+                            booking_window=func.tstzrange(
+                                overlapping_start,
+                                overlapping_start + timedelta(minutes=90),
+                                "[)",
+                            ),
+                        )
+                    )
+                    await session.commit()
+
+        # A cancelled booking holds nothing, so the same slot frees up again.
+        async with AsyncSessionLocal() as session:
+            session.add(
+                _guard(
+                    status="cancelled",
+                    start_time=base_time + timedelta(minutes=45),
+                    end_time=base_time + timedelta(minutes=135),
+                    booking_window=func.tstzrange(
+                        base_time + timedelta(minutes=45),
+                        base_time + timedelta(minutes=135),
+                        "[)",
+                    ),
+                )
+            )
+            await session.commit()
+    finally:
+        async with AsyncSessionLocal() as session:
+            await session.execute(
+                delete(Reservation).where(
+                    Reservation.table_id == table.id,
+                    Reservation.start_time < end_time + timedelta(hours=2),
+                    Reservation.end_time > base_time,
+                )
+            )
+            await session.commit()
 
 
 @pytest.mark.asyncio

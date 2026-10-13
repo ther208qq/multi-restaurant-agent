@@ -215,7 +215,7 @@ export default function ChatWidget({
                   display: 'inline-block',
                 }}
               >
-                ✅ Reservation #{m.reservation_id} 已自动确认
+                ⏳ 预订 #{m.reservation_id} 待门店确认
               </div>
             )}
           </div>

@@ -1,10 +1,11 @@
-"""Table Availability and Auto-Confirm Reservation Tool.
+"""Table Availability and Reservation-Booking Tool.
 
 Thin adapter over :class:`backend.app.service.reservation.ReservationService`:
 it normalises tool arguments and converts the service's domain exceptions into
 the dict shape the Agent nodes expect. All booking rules (candidate selection,
 overlap probing, the exclusion-constraint-guarded insert) live in the service;
-this module never opens a session or touches SQLAlchemy directly.
+this module never opens a session or touches SQLAlchemy directly. The booking is
+recorded as ``pending`` and is confirmed by staff, not here.
 """
 
 from datetime import datetime, timezone
@@ -27,12 +28,12 @@ async def check_table_availability_and_book(
     seating_area: Optional[str] = "indoor",
     notes: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Find an eligible table and auto-confirm reservation, or explain why not.
+    """Find an eligible table and record the booking as ``pending``, or explain why not.
 
-    Returns a dict with ``success`` plus either the confirmed reservation
-    details, or an ``error`` string — flagged ``alternatives_available`` when
-    another seating area is free, or ``race_conflict`` when a concurrent booking
-    won the database exclusion-constraint race.
+    Returns a dict with ``success`` plus either the booked reservation details,
+    or an ``error`` string — flagged ``alternatives_available`` when another
+    seating area is free, or ``race_conflict`` when a concurrent booking won the
+    database exclusion-constraint race.
     """
     if start_time.tzinfo is None:
         start_time = start_time.replace(tzinfo=timezone.utc)
