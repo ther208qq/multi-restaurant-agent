@@ -5,7 +5,8 @@ queries and inserts, never commits, and never imports ``service`` / ``routes`` /
 ``agent``.
 """
 
-from typing import Any, Dict, List, Optional
+from datetime import datetime
+from typing import Any, Dict, List, Optional, Sequence
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -91,6 +92,38 @@ class OrderRepo:
         stmt = stmt.order_by(Order.created_at.desc())
         if limit is not None:
             stmt = stmt.limit(limit)
+        res = await session.execute(stmt)
+        return list(res.scalars().all())
+
+    @staticmethod
+    async def list_recent_orders_for_customer(
+        session: AsyncSession,
+        *,
+        customer_id: int,
+        branch_id: int,
+        statuses: Sequence[str],
+        since: datetime,
+        limit: int = 20,
+    ) -> List[Order]:
+        """This customer's still-open orders in a branch, newest first.
+
+        Feeds the duplicate-request check: the caller compares item lines itself
+        (the repo does not know what "the same order" means), so this returns
+        candidates with their lines loaded and leaves the judgement to the
+        Service.
+        """
+        stmt = (
+            select(Order)
+            .options(selectinload(Order.items))
+            .where(
+                Order.customer_id == customer_id,
+                Order.branch_id == branch_id,
+                Order.status.in_(tuple(statuses)),
+                Order.created_at >= since,
+            )
+            .order_by(Order.created_at.desc())
+            .limit(limit)
+        )
         res = await session.execute(stmt)
         return list(res.scalars().all())
 

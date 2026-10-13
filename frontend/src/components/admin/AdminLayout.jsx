@@ -4,10 +4,11 @@ import ReservationsManager from './ReservationsManager';
 import MenuManager from './MenuManager';
 import BranchTableManager from './BranchTableManager';
 import AuditLogManager from './AuditLogManager';
-import { ShoppingBag, Calendar, Utensils, MapPin, LogOut, Shield, History } from 'lucide-react';
+import StatsDashboard from './StatsDashboard';
+import { ShoppingBag, Calendar, Utensils, MapPin, LogOut, Shield, History, BarChart3 } from 'lucide-react';
 
 export default function AdminLayout({ currentStaff, branches, onLogout, onRefreshBranches }) {
-  const [activeTab, setActiveTab] = useState('orders'); // 'orders' | 'reservations' | 'menu' | 'branches' | 'audit'
+  const [activeTab, setActiveTab] = useState('orders'); // 'orders' | 'reservations' | 'menu' | 'branches' | 'stats' | 'audit'
 
   const ROLE_LABELS = { admin: '管理员', staff: '员工' };
 
@@ -72,6 +73,13 @@ export default function AdminLayout({ currentStaff, branches, onLogout, onRefres
           <MapPin size={16} /> 门店与餐桌
         </button>
         <button
+          className={`admin-tab ${activeTab === 'stats' ? 'active' : ''}`}
+          onClick={() => setActiveTab('stats')}
+          style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+        >
+          <BarChart3 size={16} /> 经营统计
+        </button>
+        <button
           className={`admin-tab ${activeTab === 'audit' ? 'active' : ''}`}
           onClick={() => setActiveTab('audit')}
           style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
@@ -99,6 +107,10 @@ export default function AdminLayout({ currentStaff, branches, onLogout, onRefres
           branches={branches}
           onRefreshBranches={onRefreshBranches}
         />
+      )}
+
+      {activeTab === 'stats' && (
+        <StatsDashboard currentStaff={currentStaff} branches={branches} />
       )}
 
       {activeTab === 'audit' && (

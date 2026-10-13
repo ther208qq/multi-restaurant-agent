@@ -1,6 +1,8 @@
 """Tests for Pending Reservations and PostgreSQL GIST Exclusion Double-Booking Guard."""
 
 from datetime import datetime, timedelta, timezone
+from uuid import uuid4
+
 import pytest
 from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
@@ -9,6 +11,7 @@ from backend.app.agent.tools.table_tools import check_table_availability_and_boo
 from backend.app.database import AsyncSessionLocal
 from backend.app.models.branch import Table
 from backend.app.models.reservation import Reservation
+from backend.app.models.user import Customer
 
 
 @pytest.mark.asyncio
@@ -212,10 +215,18 @@ async def test_graceful_handling_when_table_taken():
         hour=20, minute=0, second=0, microsecond=0
     )
 
-    # Book all tables at branch 1 for that time
+    # Book all tables at branch 1 for that time -- on behalf of *another*
+    # customer, so the request below really does hit a table that somebody else
+    # is holding (the duplicate-request guard would otherwise recognise the
+    # requester's own identical booking and return it instead).
     async with AsyncSessionLocal() as session:
         from sqlalchemy import delete
         end_t = base_time + timedelta(minutes=90)
+        blocker = Customer(
+            name="__blocker", email=f"blocker{uuid4().hex[:8]}@x.com", password_hash="x"
+        )
+        session.add(blocker)
+        await session.flush()
         await session.execute(
             delete(Reservation).where(
                 Reservation.branch_id == 1,
@@ -229,7 +240,7 @@ async def test_graceful_handling_when_table_taken():
         rooftop_tables = t_res.scalars().all()
         for t in rooftop_tables:
             r = Reservation(
-                customer_id=1,
+                customer_id=blocker.id,
                 branch_id=1,
                 table_id=t.id,
                 party_size=4,

@@ -28,6 +28,7 @@ from backend.app.routes import (
     staff_menu_router,
     staff_orders_router,
     staff_reservations_router,
+    staff_stats_router,
 )
 
 logging.basicConfig(
@@ -93,6 +94,7 @@ app.include_router(staff_branches_router, prefix="/api")
 app.include_router(staff_menu_router, prefix="/api")
 app.include_router(staff_orders_router, prefix="/api")
 app.include_router(staff_reservations_router, prefix="/api")
+app.include_router(staff_stats_router, prefix="/api")
 
 
 @app.get("/health")

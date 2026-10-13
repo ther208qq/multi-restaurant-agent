@@ -199,6 +199,17 @@ export const api = {
     return request(`/staff/audit-logs${qs}`, { method: 'GET' }, 'staff');
   },
 
+  // Staff Statistics
+  getStats: (branchId = null, startDate = null, endDate = null, top = null) => {
+    const params = new URLSearchParams();
+    if (branchId) params.append('branch_id', branchId);
+    if (startDate) params.append('start_date', startDate);
+    if (endDate) params.append('end_date', endDate);
+    if (top) params.append('top', top);
+    const qs = params.toString() ? `?${params.toString()}` : '';
+    return request(`/staff/stats${qs}`, { method: 'GET' }, 'staff');
+  },
+
   // Staff Menu & Stock
   getStaffCategories: (branchId = null) => {    const qs = branchId ? `?branch_id=${branchId}` : '';
     return request(`/staff/menu/categories${qs}`, { method: 'GET' }, 'staff');

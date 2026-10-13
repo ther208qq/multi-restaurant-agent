@@ -10,6 +10,7 @@ from backend.app.routes.staff_branches import router as staff_branches_router
 from backend.app.routes.staff_menu import router as staff_menu_router
 from backend.app.routes.staff_orders import router as staff_orders_router
 from backend.app.routes.staff_reservations import router as staff_reservations_router
+from backend.app.routes.staff_stats import router as staff_stats_router
 
 __all__ = [
     "auth_router",
@@ -22,4 +23,5 @@ __all__ = [
     "staff_menu_router",
     "staff_orders_router",
     "staff_reservations_router",
+    "staff_stats_router",
 ]

@@ -20,6 +20,7 @@ Raises domain exceptions (never HTTP types); the API maps them to status codes
 and the Agent turns them into user-facing replies.
 """
 
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, FrozenSet, List, Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -34,6 +35,7 @@ from backend.app.exceptions import (
 from backend.app.labels import ORDER_STATUS_LABELS
 from backend.app.models.order import Order
 from backend.app.models.user import StaffUser
+from backend.app.repo.locks import lock_key, lock_request
 from backend.app.repo.menu import MenuRepo
 from backend.app.repo.order import OrderRepo
 from backend.app.repo.user import UserRepo
@@ -47,6 +49,19 @@ VALID_ORDER_STATUSES = (
     "delivered",
     "cancelled",
 )
+
+# Statuses that still have something left to happen to them. A repeat submission
+# is a duplicate of an order in one of these -- once an order is cancelled or
+# delivered, ordering the same thing again is a genuinely new request.
+OPEN_ORDER_STATUSES = tuple(
+    status for status in VALID_ORDER_STATUSES if status not in ("cancelled", "delivered")
+)
+
+# How long a still-open order keeps absorbing repeat submissions of itself
+# (spec §9 重复请求). Long enough to cover a double-sent chat message, a retried
+# request or a model that emits the same tool call twice in one turn; short
+# enough that "the same order, again" a few minutes later is a new order.
+DEDUPLICATE_WINDOW_MINUTES = 5
 
 # Legal status moves. Forward-only along the lifecycle, plus cancellation from
 # any non-terminal status and the single ``cancelled -> placed`` restore. A
@@ -105,6 +120,43 @@ def _unit_price(base_price: float, resolved_variants: List[Dict[str, Any]]) -> f
     )
 
 
+def _variant_names(variants: Optional[List[Dict[str, Any]]]) -> tuple:
+    """The variant names on a line, order-insensitively, for request comparison."""
+    return tuple(
+        sorted(
+            str(v.get("variant_name") or v.get("name") or "").strip()
+            for v in (variants or [])
+        )
+    )
+
+
+def _order_signature(
+    order_type: Optional[str],
+    delivery_address: Optional[str],
+    lines: List[Dict[str, Any]],
+) -> tuple:
+    """What makes two order requests *the same request*, independent of ids.
+
+    Compared against :meth:`OrderService._find_duplicate_order`, which builds the
+    same tuple from stored order lines -- so the two sides have to keep agreeing
+    on the shape (item, quantity, variant names, line note).
+    """
+    signature = [
+        order_type or "",
+        (delivery_address or "").strip(),
+    ]
+    for line in sorted(lines, key=lambda x: (x["menu_item_id"], x["quantity"])):
+        signature.append(
+            "{}x{}[{}]{}".format(
+                line["menu_item_id"],
+                line["quantity"],
+                ",".join(_variant_names(line.get("selected_variants"))),
+                (line.get("item_notes") or "").strip(),
+            )
+        )
+    return tuple(signature)
+
+
 class OrderService:
     @staticmethod
     async def preview_order(
@@ -155,9 +207,16 @@ class OrderService:
         delivery_address: Optional[str] = None,
         special_notes: Optional[str] = None,
         *,
+        deduplicate: bool = False,
         session: Optional[AsyncSession] = None,
     ) -> Order:
         # Validate stock, atomically decrement, and persist the order.
+        #
+        # Two passes on purpose. The first resolves and validates every line
+        # without writing anything; the second takes the stock and inserts. That
+        # keeps the duplicate check (which must not consume stock) between the
+        # two, and means a bad line aborts before the first decrement instead of
+        # halfway through.
         if not items:
             raise ValidationError(
                 "订单不能为空，请指定想要点的菜品。"
@@ -167,7 +226,7 @@ class OrderService:
                 "外卖订单需要填写配送地址，请提供您的收货地址。"
             )
         async with transactional_session(session) as s:
-            processed: List[Dict[str, Any]] = []
+            planned: List[Dict[str, Any]] = []
             total_amount = 0.0
             for req in items:
                 item_id = req.get('menu_item_id')
@@ -187,10 +246,28 @@ class OrderService:
                 # bad variant reference aborts without a half-applied order.
                 variants = _resolve_variants(menu_item, req.get('selected_variants'))
                 unit_price = _unit_price(menu_item.base_price, variants)
-                if not await MenuRepo.try_decrement_stock(s, item_id, branch_id, qty):
-                    raise ConflictError(f'「{menu_item.name}」库存已发生变化，请重试。')
                 total_amount += round(unit_price * qty, 2)
-                processed.append({'menu_item_id': item_id, 'quantity': qty, 'unit_price': unit_price, 'selected_variants': variants, 'item_notes': req.get('item_notes')})
+                planned.append({'menu_item_id': item_id, 'name': menu_item.name, 'quantity': qty, 'unit_price': unit_price, 'selected_variants': variants, 'item_notes': req.get('item_notes')})
+
+            if deduplicate:
+                existing = await OrderService._find_duplicate_order(
+                    s,
+                    customer_id=customer_id,
+                    branch_id=branch_id,
+                    order_type=order_type,
+                    delivery_address=delivery_address,
+                    planned=planned,
+                )
+                if existing is not None:
+                    # The same request, already placed: hand back the original
+                    # order instead of selling the customer a second one. No
+                    # stock is taken twice, no second order row, no second audit
+                    # entry -- the caller's reply is identical either way.
+                    return existing
+
+            for line in planned:
+                if not await MenuRepo.try_decrement_stock(s, line['menu_item_id'], branch_id, line['quantity']):
+                    raise ConflictError(f"「{line['name']}」库存已发生变化，请重试。")
             order = await OrderRepo.create_order(
                 s,
                 {
@@ -203,8 +280,11 @@ class OrderService:
                     'total_amount': round(total_amount, 2),
                 },
             )
-            for p in processed:
-                await OrderRepo.add_order_item(s, {'order_id': order.id, **p})
+            for p in planned:
+                payload = dict(p)
+                # ``name`` is carried only for error messages, not stored.
+                payload.pop('name', None)
+                await OrderRepo.add_order_item(s, {'order_id': order.id, **payload})
             # Audit trail (spec §9): who placed the order, in which branch.
             await AuditService.record(
                 s,
@@ -217,10 +297,65 @@ class OrderService:
                     'order_type': order_type,
                     'status': order.status,
                     'total_amount': round(total_amount, 2),
-                    'line_count': len(processed),
+                    'line_count': len(planned),
                 },
             )
             return order
+
+    @staticmethod
+    async def _find_duplicate_order(
+        s: AsyncSession,
+        *,
+        customer_id: int,
+        branch_id: int,
+        order_type: str,
+        delivery_address: Optional[str],
+        planned: List[Dict[str, Any]],
+    ) -> Optional[Order]:
+        """The still-open order this submission repeats, if there is one.
+
+        A repeat submission of the same request (spec §9 重复请求) must return the
+        order that already exists rather than place a second one. What counts as
+        "the same request" is the item lines, the order type and the delivery
+        address -- deliberately *not* the ids: two submissions minutes apart carry
+        different drafts but describe the same order.
+
+        An advisory lock serialises identical submissions, because the check and
+        the insert are otherwise two transactions that can interleave. The lock is
+        keyed on the request, not the customer, so unrelated orders still place
+        concurrently.
+        """
+        signature = _order_signature(order_type, delivery_address, planned)
+        await lock_request(
+            s, lock_key("order-request", customer_id, branch_id, *signature)
+        )
+        since = datetime.now(timezone.utc) - timedelta(
+            minutes=DEDUPLICATE_WINDOW_MINUTES
+        )
+        candidates = await OrderRepo.list_recent_orders_for_customer(
+            s,
+            customer_id=customer_id,
+            branch_id=branch_id,
+            statuses=OPEN_ORDER_STATUSES,
+            since=since,
+        )
+        for candidate in candidates:
+            stored = _order_signature(
+                candidate.order_type,
+                candidate.delivery_address,
+                [
+                    {
+                        'menu_item_id': item.menu_item_id,
+                        'quantity': item.quantity,
+                        'selected_variants': item.selected_variants,
+                        'item_notes': item.item_notes,
+                    }
+                    for item in candidate.items
+                ],
+            )
+            if stored == signature:
+                return candidate
+        return None
 
     @staticmethod
     async def get_order(
@@ -329,4 +464,10 @@ class OrderService:
             return order
 
 
-__all__ = ["OrderService", "VALID_ORDER_STATUSES", "ORDER_TRANSITIONS"]
+__all__ = [
+    "OrderService",
+    "VALID_ORDER_STATUSES",
+    "ORDER_TRANSITIONS",
+    "OPEN_ORDER_STATUSES",
+    "DEDUPLICATE_WINDOW_MINUTES",
+]

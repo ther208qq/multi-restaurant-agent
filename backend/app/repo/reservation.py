@@ -7,7 +7,7 @@ imports ``service`` / ``routes`` / ``agent``.
 """
 
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Sequence
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -120,6 +120,44 @@ class ReservationRepo:
             stmt = stmt.limit(limit)
         res = await session.execute(stmt)
         return list(res.scalars().all())
+
+    @staticmethod
+    async def find_open_duplicate(
+        session: AsyncSession,
+        *,
+        customer_id: int,
+        branch_id: int,
+        start_time: datetime,
+        party_size: int,
+        duration_minutes: int,
+        statuses: Sequence[str],
+        since: datetime,
+    ) -> Optional[Reservation]:
+        """This customer's still-holding booking for the very same slot, if any.
+
+        Feeds the duplicate-request check: a booking that is still occupying its
+        table (pending / confirmed / seated) and matches the slot exactly is the
+        same request submitted twice, not a second table.
+        """
+        stmt = (
+            select(Reservation)
+            .options(
+                selectinload(Reservation.table), selectinload(Reservation.branch)
+            )
+            .where(
+                Reservation.customer_id == customer_id,
+                Reservation.branch_id == branch_id,
+                Reservation.status.in_(tuple(statuses)),
+                Reservation.start_time == start_time,
+                Reservation.party_size == party_size,
+                Reservation.duration_minutes == duration_minutes,
+                Reservation.created_at >= since,
+            )
+            .order_by(Reservation.id.desc())
+            .limit(1)
+        )
+        res = await session.execute(stmt)
+        return res.scalar_one_or_none()
 
     @staticmethod
     async def has_overlapping_active(

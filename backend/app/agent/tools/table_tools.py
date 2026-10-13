@@ -47,6 +47,11 @@ async def check_table_availability_and_book(
             duration_minutes=duration_minutes,
             seating_area=seating_area,
             notes=notes,
+            # Booking happens in one step through chat, so a repeat submission
+            # (the same message sent twice, or the model re-emitting the tool
+            # call) must return the booking that already holds the slot rather
+            # than hold a second table for the same party (spec §9 重复请求).
+            deduplicate=True,
         )
     except TableUnavailableError as exc:
         return {"success": False, "error": exc.message, "alternatives_available": True}

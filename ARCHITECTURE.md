@@ -94,6 +94,30 @@ Two design choices are worth calling out:
 - **The audit row is written on the audited operation's own transaction**, via `AuditService.record(session, ...)` — a Service method that deliberately does *not* open its own transaction. A rejected stock adjustment, an illegal status transition, or a reservation that loses the exclusion-constraint race rolls the whole thing back and leaves no audit entry behind, so the trail can never claim an operation that did not happen. Read access (`AuditService.list_logs`) *is* a normal Service entry point and applies the branch-scope rule.
 - **The actor is denormalized, not a foreign key.** The trail stays readable after a staff account or customer is deleted, and the same table records both human actors and Agent-driven ones (an order placed through chat is attributed to the `customer` that placed it, read from the authenticated state the route injected — never from anything the LLM said).
 
+## Business statistics
+
+`GET /api/staff/stats?branch_id=&start_date=&end_date=&top=` answers "how did this branch do?" for a date range: order volume, revenue, average order value, cancelled orders, total dish units, a per-day series and a best-selling-dish ranking (`StatsService` → `StatsRepo` → aggregate SQL).
+
+Two definitions are decisions, not implementation details, and they live in the Service layer so every caller shares them:
+
+- **A cancelled order is not a sale.** It is excluded from the order count, revenue, units and dish ranking, and reported separately as `cancelled_count`. An order that was cancelled and later restored (`cancelled -> placed`) counts again, because the numbers describe the *current* state of the orders in the window rather than replaying history. Someone reading the dashboard and someone looking at the order board therefore see the same story.
+- **A day is a UTC day.** Timestamps are `timestamptz`, so `date_trunc('day', ...)` would silently follow the server's TimeZone setting; the aggregation converts to UTC first, and the range is applied as a half-open window `[start 00:00, end+1 00:00)` with `end_date` inclusive.
+
+Revenue and the dish ranking read the order line's **snapshot** `unit_price` (base price plus the resolved variant deltas, frozen at placement) — the same reason Task16 stored it there: a later menu price change must not rewrite the history it reports on. Branch scope follows the same rule as every other staff endpoint: a branch-bound staff member aggregates their own branch, and another branch's id is a `403` rather than a silently empty result.
+
+## Duplicate requests
+
+The Agent is the one place a request can arrive twice by accident: a chat message sent twice, a retried request, or a small model emitting the same tool call twice in one turn. Both entry points therefore submit with a duplicate guard (`deduplicate=True` — the Service default is off, so staff/API callers keep the plain create semantics), and a repeat submission of a request that is still open returns **the order / booking that already exists**: one row, one stock decrement, one audit entry, and identical replies to both submissions.
+
+What counts as "the same request" has to be derived, because the two flows differ:
+
+- **Orders** are placed in two steps, so the second confirmation of the same draft is recognisable by its content — same branch, order type, delivery address and item lines (item, quantity, variant names, line note), compared against stored lines rather than request ids. The two-pass `place_order` resolves and validates every line first, then checks for a duplicate, then takes the stock — so the duplicate check never consumes stock, and a bad line aborts before the first decrement instead of halfway through.
+- **Bookings** are made in one step, with no confirmation turn to anchor an identity on, so the request *is* the identity: the same customer asking for the same slot, party size and duration again. This matters because the exclusion constraint cannot catch this case — the repeat would land on a *different* free table and hold two tables for one party.
+
+Both guards are bounded by a short window (`DEDUPLICATE_WINDOW_MINUTES = 5`) and by status: an order that is already cancelled or delivered, or a booking that is no longer occupying a table, does not absorb a repeat — ordering the same thing again after the first one finished is a new request, not a duplicate.
+
+The look-up runs under a PostgreSQL advisory lock (`pg_advisory_xact_lock`, keyed on the request), taken inside the caller's transaction: without it the check and the insert are two transactions that can interleave, and two simultaneous submissions would both find nothing and both insert. Holding the key on the request rather than the customer means unrelated orders still place concurrently. The lock is transaction-scoped, so a rollback or an error path releases it automatically.
+
 ## Engineering log: real issues found and fixed
 
 Included because working through these is a more honest signal of engineering ability than a bug-free changelog would be.

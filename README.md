@@ -37,6 +37,7 @@ The interesting engineering problem this project solves isn't "wire an LLM to a 
 - ✏️ Menu and per-branch stock editor
 - ⚙️ Branch and table configuration
 - 🔍 Operation audit log: every key action (order cancellation, stock adjustment, table reassignment, reservation change, menu/branch edits) recorded with who did it and the before/after values
+- 📊 Business statistics: order volume, revenue, average order value, units sold, a best-selling-dish ranking and a daily breakdown for any branch and date range — cancelled orders excluded from the totals and reported separately
 - 🔒 Branch-scoped permissions: a branch-bound staff account only ever sees and acts on its own branch; branch create/edit is admin-only
 
 ## 💻 Tech stack
@@ -91,13 +92,17 @@ npm run dev
 pytest -v
 ```
 
-Covers: JWT auth flows, branch-scoped staff permissions, the operation audit trail (including that a rejected operation leaves no audit row), atomic stock decrement under concurrency, reservation lifecycle transitions and rescheduling, the PostgreSQL exclusion constraint rejecting overlapping reservations in any occupying status, and order cancel/un-cancel stock reversal.
+Covers: JWT auth flows, branch-scoped staff permissions, the operation audit trail (including that a rejected operation leaves no audit row), the statistics aggregates (cancelled orders excluded, UTC day boundaries, branch isolation), duplicate-request suppression for both orders and bookings, atomic stock decrement under concurrency, reservation lifecycle transitions and rescheduling, the PostgreSQL exclusion constraint rejecting overlapping reservations in any occupying status, and order cancel/un-cancel stock reversal.
+
+The statistics and duplicate-request tests are also the failure-path suite: a short second line in a multi-line order, a booking that loses the table to someone else, and an illegal status transition each assert that **nothing** was written — no row, no stock movement, no audit entry.
 
 ## 🚧 Known limitations
 
 Documented deliberately rather than discovered by a reader — this is a portfolio/demo system, not a production deployment:
 - Local LLM + local Postgres means this isn't deployed anywhere persistent by default; it's designed to run on one machine.
 - No payment processing — orders are marked `placed` and handled manually by staff, by design.
+- Duplicate-request suppression is a five-minute window scoped to still-open requests, not a general idempotency-key system: a genuinely intentional repeat of the identical order a few minutes later goes through, and a *different* request in the same window always does.
+- Statistics are aggregated per UTC day (the database stores `timestamptz`); a branch in another timezone would need a per-branch offset to have its "day" line up with the local one.
 - A small local model (`deepseek-r1:8b`/`1.5b`) is meaningfully less reliable at tool-calling than a hosted frontier model; the agent includes defensive parsing around this for exactly that reason.
 
 ## 📁 Project layout

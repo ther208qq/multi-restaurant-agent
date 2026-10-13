@@ -43,9 +43,17 @@ from backend.app.models.branch import Table
 from backend.app.models.reservation import OCCUPYING_RESERVATION_STATUSES, Reservation
 from backend.app.models.user import StaffUser
 from backend.app.repo.branch import BranchRepo
+from backend.app.repo.locks import lock_key, lock_request
 from backend.app.repo.reservation import ReservationRepo
 from backend.app.repo.user import UserRepo
 from backend.app.service.audit import AuditService
+
+# How long a booking that still holds its table keeps absorbing repeat
+# submissions of itself (spec §9 重复请求). The Agent books in one step -- there
+# is no confirmation turn to anchor a request id on -- so the identity has to be
+# the request itself: the same customer asking for the same slot, party size and
+# duration again is the same request, not a second table.
+DEDUPLICATE_WINDOW_MINUTES = 5
 
 VALID_RESERVATION_STATUSES = (
     "pending",
@@ -211,6 +219,7 @@ class ReservationService:
         seating_area: Optional[str] = 'indoor',
         notes: Optional[str] = None,
         *,
+        deduplicate: bool = False,
         session: Optional[AsyncSession] = None,
     ) -> Reservation:
         """Find a free best-fit table and record the booking as ``pending``.
@@ -228,6 +237,21 @@ class ReservationService:
             branch = await BranchRepo.get_branch(s, branch_id, active_only=True)
             if branch is None:
                 raise NotFoundError(f'门店 #{branch_id} 不存在。')
+
+            if deduplicate:
+                existing = await ReservationService._find_duplicate_booking(
+                    s,
+                    customer_id=customer_id,
+                    branch_id=branch_id,
+                    start_time=start_time,
+                    party_size=party_size,
+                    duration_minutes=duration_minutes,
+                )
+                if existing is not None:
+                    # The same request, already booked: hand back the original
+                    # booking rather than hold a second table for it.
+                    existing.branch = branch
+                    return existing
 
             chosen_table = await ReservationService._pick_free_table(
                 s, branch_id, party_size, area_filter, start_time, end_time
@@ -274,6 +298,53 @@ class ReservationService:
                 },
             )
             return reservation
+
+    @staticmethod
+    async def _find_duplicate_booking(
+        s: AsyncSession,
+        *,
+        customer_id: int,
+        branch_id: int,
+        start_time: datetime,
+        party_size: int,
+        duration_minutes: int,
+    ) -> Optional[Reservation]:
+        """This customer's still-holding booking for the same slot, if any.
+
+        Guards against a repeat submission (spec §9 重复请求): without it, a chat
+        message sent twice, a retried request, or a model that emits the same tool
+        call twice would hold *two* tables for one party -- the exclusion
+        constraint cannot catch that, because the second booking lands on a
+        different free table.
+
+        The look-up runs under an advisory lock keyed on the request, so two
+        simultaneous submissions of the same booking cannot both miss each other
+        and both insert.
+        """
+        await lock_request(
+            s,
+            lock_key(
+                "reservation-request",
+                customer_id,
+                branch_id,
+                start_time.isoformat(),
+                party_size,
+                duration_minutes,
+            ),
+        )
+        since = datetime.now(timezone.utc) - timedelta(
+            minutes=DEDUPLICATE_WINDOW_MINUTES
+        )
+        return await ReservationRepo.find_open_duplicate(
+            s,
+            customer_id=customer_id,
+            branch_id=branch_id,
+            start_time=start_time,
+            party_size=party_size,
+            duration_minutes=duration_minutes,
+            statuses=OCCUPYING_RESERVATION_STATUSES,
+            since=since,
+        )
 
     @staticmethod
     async def _pick_free_table(
@@ -680,4 +751,5 @@ __all__ = [
     "RESERVATION_TRANSITIONS",
     "OCCUPYING_RESERVATION_STATUSES",
     "RESCHEDULABLE_STATUSES",
+    "DEDUPLICATE_WINDOW_MINUTES",
 ]

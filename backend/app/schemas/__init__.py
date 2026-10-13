@@ -41,6 +41,11 @@ from backend.app.schemas.reservation import (
     ReservationResponse,
     ReservationUpdate,
 )
+from backend.app.schemas.stats import (
+    BranchStatsResponse,
+    StatsDailyPoint,
+    StatsDishSales,
+)
 
 __all__ = [
     "CustomerLoginRequest",
@@ -75,4 +80,7 @@ __all__ = [
     "ReservationCreate",
     "ReservationResponse",
     "ReservationUpdate",
+    "BranchStatsResponse",
+    "StatsDailyPoint",
+    "StatsDishSales",
 ]

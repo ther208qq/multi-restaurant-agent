@@ -96,6 +96,12 @@ async def create_order_atomic(
             items,
             delivery_address=delivery_address,
             special_notes=special_notes,
+            # The Agent is the only place an order can be submitted twice by
+            # accident -- a message sent twice, or a small model emitting the
+            # same tool call twice in one turn. Repeat submissions of a request
+            # that is still open return the order that already exists (spec §9
+            # 重复请求) instead of selling a second one.
+            deduplicate=True,
         )
     except DomainError as exc:
         return {"success": False, "error": exc.message}
