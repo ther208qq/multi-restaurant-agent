@@ -33,7 +33,7 @@ class BranchBase(BaseModel):
     name: str
     address: str
     phone: str
-    opening_hours: str = "10:00 AM - 10:00 PM"
+    opening_hours: str = "10:00 - 22:00"
     is_active: bool = True
 
 

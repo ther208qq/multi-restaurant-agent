@@ -94,7 +94,7 @@ npm run dev
 pytest -v
 ```
 
-Covers: JWT auth flows, branch-scoped staff permissions, the operation audit trail (including that a rejected operation leaves no audit row), the statistics aggregates (cancelled orders excluded, UTC day boundaries, branch isolation), duplicate-request suppression for both orders and bookings, atomic stock decrement under concurrency, reservation lifecycle transitions and rescheduling, the PostgreSQL exclusion constraint rejecting overlapping reservations in any occupying status, and order cancel/un-cancel stock reversal.
+Covers: JWT auth flows, branch-scoped staff permissions, the operation audit trail (including that a rejected operation leaves no audit row), the statistics aggregates (cancelled orders excluded, UTC day boundaries, branch isolation), duplicate-request suppression for both orders and bookings, atomic stock decrement under concurrency, reservation lifecycle transitions and rescheduling, reservation time-window enforcement (lead time, 30-day horizon, opening-hours fitting, concrete near-slot suggestions), the PostgreSQL exclusion constraint rejecting overlapping reservations in any occupying status, and order cancel/un-cancel stock reversal.
 
 The statistics and duplicate-request tests are also the failure-path suite: a short second line in a multi-line order, a booking that loses the table to someone else, and an illegal status transition each assert that **nothing** was written — no row, no stock movement, no audit entry.
 
@@ -105,6 +105,7 @@ Documented deliberately rather than discovered by a reader — this is a portfol
 - No payment processing — orders are marked `placed` and handled manually by staff, by design.
 - Duplicate-request suppression is a five-minute window scoped to still-open requests, not a general idempotency-key system: a genuinely intentional repeat of the identical order a few minutes later goes through, and a *different* request in the same window always does.
 - Statistics are aggregated per UTC day (the database stores `timestamptz`); a branch in another timezone would need a per-branch offset to have its "day" line up with the local one.
+- A branch's `opening_hours` is one daily range (`HH:MM - HH:MM`); overnight spans and split shifts are out of scope, and the booking window (15-minute lead, 30-day horizon) is a fixed constant rather than per-branch policy.
 - Reservation and order times are stored and shown as the wall clock the guest typed (`19:00` stays `19:00` in every surface, no timezone conversion), which keeps the UI consistent with the chat replies but is not timezone-aware.
 - A small local model (`deepseek-r1:8b`/`1.5b`) is meaningfully less reliable at tool-calling than a hosted frontier model; the agent includes defensive parsing around this for exactly that reason.
 

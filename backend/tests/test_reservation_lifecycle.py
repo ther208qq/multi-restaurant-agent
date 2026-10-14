@@ -37,7 +37,11 @@ CHAIN = ("pending", "confirmed", "seated", "completed")
 
 
 def _slot(days=500, hour=19, minute=0):
-    return (datetime.now(timezone.utc) + timedelta(days=days)).replace(
+    # ``days`` is a per-test slot discriminator, not a literal day count: fold it
+    # into the bookable horizon (1..25 days) so every slot stays inside the
+    # 30-day booking window the service now enforces.
+    offset = days % 25 + 1
+    return (datetime.now(timezone.utc) + timedelta(days=offset)).replace(
         hour=hour, minute=minute, second=0, microsecond=0
     )
 
@@ -45,7 +49,10 @@ def _slot(days=500, hour=19, minute=0):
 async def _make_branch(specs):
     """Create an isolated branch with tables; specs = [(label, area, capacity)]."""
     async with transactional_session() as s:
-        branch = Branch(name='__rl_branch', address='x', phone='x', is_active=True)
+        branch = Branch(
+            name='__rl_branch', address='x', phone='x',
+            opening_hours='10:00 - 23:59', is_active=True,
+        )
         s.add(branch)
         await s.flush()
         table_ids = []

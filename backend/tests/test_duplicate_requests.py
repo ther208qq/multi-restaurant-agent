@@ -51,6 +51,7 @@ async def _make_branch(*specs, name=None):
             name=name or f"__dup{uuid4().hex[:8]}",
             address="x",
             phone="x",
+            opening_hours="10:00 - 23:59",
             is_active=True,
         )
         s.add(branch)
@@ -151,7 +152,10 @@ async def _audit_count(action: str, entity_id: int = None, branch_id: int = None
 
 
 def _slot(days=400, hour=19):
-    return (datetime.now(timezone.utc) + timedelta(days=days)).replace(
+    # ``days`` is a per-test slot discriminator; fold it into the bookable
+    # horizon (1..25 days) so the slot stays inside the 30-day window.
+    offset = days % 25 + 1
+    return (datetime.now(timezone.utc) + timedelta(days=offset)).replace(
         hour=hour, minute=0, second=0, microsecond=0
     )
 

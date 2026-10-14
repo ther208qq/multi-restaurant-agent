@@ -12,8 +12,20 @@ from backend.app.database import transactional_session
 from backend.app.exceptions import ForbiddenError, NotFoundError
 from backend.app.models.branch import Branch, Table
 from backend.app.models.user import StaffUser
+from backend.app.opening_hours import parse_opening_hours
 from backend.app.repo.branch import BranchRepo
 from backend.app.service.audit import AuditService
+
+
+def _check_opening_hours(values: Dict[str, Any]) -> None:
+    """Reject an edit that would store an unparseable ``opening_hours``.
+
+    The reservation service parses this field to reject out-of-hours bookings, so
+    a bad value here would quietly break booking for the whole branch.
+    """
+    value = values.get("opening_hours")
+    if value is not None:
+        parse_opening_hours(value)
 
 
 class BranchService:
@@ -52,6 +64,7 @@ class BranchService:
         session: Optional[AsyncSession] = None,
     ) -> Branch:
         async with transactional_session(session) as s:
+            _check_opening_hours(values)
             branch = await BranchRepo.create_branch(s, values)
             await AuditService.record(
                 s,
@@ -76,6 +89,7 @@ class BranchService:
             branch = await BranchRepo.get_branch(s, branch_id)
             if branch is None:
                 raise NotFoundError("门店不存在。")
+            _check_opening_hours(values)
             before = {key: getattr(branch, key) for key in values if hasattr(branch, key)}
             updated = await BranchRepo.update_branch(s, branch, values)
             if before:

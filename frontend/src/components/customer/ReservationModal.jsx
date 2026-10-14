@@ -30,6 +30,7 @@ const [partySize, setPartySize] = useState(2);
 const [area, setArea] = useState('any');
 const [notes, setNotes] = useState('');
 const [slots, setSlots] = useState(null);
+const [availError, setAvailError] = useState('');
 const [checking, setChecking] = useState(false);
 const [error, setError] = useState('');
 const [booking, setBooking] = useState(false);
@@ -43,6 +44,7 @@ setPartySize(2);
 setArea('any');
 setNotes('');
 setSlots(null);
+setAvailError('');
 setError('');
 setBooked(null);
 }
@@ -54,8 +56,8 @@ let cancelled = false;
 setChecking(true);
 api
 .getReservationAvailability({ branch_id: branch.id, date: date, time: time, party_size: partySize, seating_area: area })
-.then((res) => { if (!cancelled) setSlots(res); })
-.catch(() => { if (!cancelled) setSlots(null); })
+.then((res) => { if (!cancelled) { setSlots(res); setAvailError(''); } })
+.catch((err) => { if (!cancelled) { setSlots(null); setAvailError(err.message || ''); } })
 .finally(() => { if (!cancelled) setChecking(false); });
 return () => { cancelled = true; };
 }, [isOpen, branch, date, time, partySize, area]);
@@ -138,9 +140,9 @@ return (
 </select>
 </div>
 </div>
-<div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem', color: checking ? 'var(--text-muted)' : (slots && slots.length > 0 ? '#15803d' : '#b45309') }}>
+<div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem', color: availError ? '#b91c1c' : checking ? 'var(--text-muted)' : (slots && slots.length > 0 ? '#15803d' : '#b45309') }}>
 <Clock size={15} />
-{checking ? '正在查询可用餐桌…' : slots && slots.length > 0 ? '该时段还有 ' + slots.length + ' 张桌可用' : '该时段暂无可预订的餐桌，请换个时间或区域'}
+{checking ? '正在查询可用餐桌…' : availError ? availError : slots && slots.length > 0 ? '该时段还有 ' + slots.length + ' 张桌可用' : '该时段暂无可预订的餐桌，请换个时间或区域'}
 </div>
 <div>
 <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', display: 'block', marginBottom: '6px' }}>备注（选填）</label>

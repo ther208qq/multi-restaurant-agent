@@ -33,7 +33,7 @@ export default function BranchSelector({ branches, selectedBranchId, onSelectBra
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-muted)' }}>
             <Clock size={14} style={{ flexShrink: 0 }} />
-            <span>{selectedBranch.opening_hours || '10:00 AM - 11:00 PM'}</span>
+            <span>{selectedBranch.opening_hours || '10:00 - 22:00'}</span>
           </div>
 
           {selectedBranch.phone && (

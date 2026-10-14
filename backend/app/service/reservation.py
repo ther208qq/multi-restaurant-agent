@@ -19,6 +19,12 @@ and surfaced here as :class:`ReservationRaceError` (409). Rescheduling probes
 the target table first for a precise message and keeps the constraint as the
 backstop.
 
+Time rules (spec §11): a booking must start at least
+:data:`MIN_BOOKING_LEAD_MINUTES` ahead and no more than :data:`MAX_BOOKING_DAYS`
+out, and fit inside the branch's ``opening_hours`` -- enforced by
+:func:`validate_bookable_slot` from every entry point (booking, the availability
+query and the staff reschedule) so the three cannot disagree.
+
 Raises domain exceptions (never HTTP types); the API maps them to status codes
 and the Agent turns them into user-facing replies.
 """
@@ -42,6 +48,7 @@ from backend.app.labels import RESERVATION_STATUS_LABELS, seating_area_label
 from backend.app.models.branch import Table
 from backend.app.models.reservation import OCCUPYING_RESERVATION_STATUSES, Reservation
 from backend.app.models.user import StaffUser
+from backend.app.opening_hours import format_clock, parse_opening_hours
 from backend.app.repo.branch import BranchRepo
 from backend.app.repo.locks import lock_key, lock_request
 from backend.app.repo.reservation import ReservationRepo
@@ -54,6 +61,21 @@ from backend.app.service.audit import AuditService
 # the request itself: the same customer asking for the same slot, party size and
 # duration again is the same request, not a second table.
 DEDUPLICATE_WINDOW_MINUTES = 5
+
+# Booking-window rules (spec §11), enforced by every entry point that can create
+# or move a booking -- the customer form, the chat Agent and the staff reschedule
+# -- so a slot one surface accepts is accepted by all. A slot must be at least
+# ``MIN_BOOKING_LEAD_MINUTES`` ahead (no booking the immediate past) and no more
+# than ``MAX_BOOKING_DAYS`` out (no booking half a year away).
+MIN_BOOKING_LEAD_MINUTES = 15
+MAX_BOOKING_DAYS = 30
+
+# How the "that slot is full" reply looks for a concrete nearby time. It scans
+# outward from the requested time in fixed steps, up to a bounded radius, and
+# reports the first few times that really do have a free table.
+SUGGESTION_STEP_MINUTES = 30
+SUGGESTION_RADIUS_MINUTES = 240
+MAX_TIME_SUGGESTIONS = 3
 
 VALID_RESERVATION_STATUSES = (
     "pending",
@@ -101,6 +123,47 @@ def _coerce_start_time(value: Any) -> datetime:
     if value.tzinfo is None:
         value = value.replace(tzinfo=timezone.utc)
     return value
+
+
+def validate_bookable_slot(
+    start_time: datetime,
+    duration_minutes: int,
+    opening_hours: Optional[str],
+    *,
+    now: Optional[datetime] = None,
+) -> None:
+    """Reject a slot outside the bookable window or the branch's opening hours.
+
+    Three rules (spec §11): the start must be at least
+    :data:`MIN_BOOKING_LEAD_MINUTES` in the future and no further than
+    :data:`MAX_BOOKING_DAYS` ahead, and the whole sitting
+    (``start_time + duration_minutes``) must fit inside the branch's opening
+    hours. Raises :class:`ValidationError` otherwise.
+
+    Shared by ``book_table``, ``list_available_tables`` and the staff reschedule
+    path, so a slot the availability query offers is one ``book_table`` accepts --
+    otherwise the form would show "tables free" and then refuse the submission.
+    """
+    now = now or datetime.now(timezone.utc)
+    if start_time < now + timedelta(minutes=MIN_BOOKING_LEAD_MINUTES):
+        raise ValidationError(
+            f"预订时间需至少提前 {MIN_BOOKING_LEAD_MINUTES} 分钟。"
+        )
+    if start_time > now + timedelta(days=MAX_BOOKING_DAYS):
+        raise ValidationError(
+            f"最多只能预订未来 {MAX_BOOKING_DAYS} 天内的座位。"
+        )
+    open_minutes, close_minutes = parse_opening_hours(opening_hours)
+    start_minutes = start_time.hour * 60 + start_time.minute
+    if start_minutes < open_minutes:
+        raise ValidationError(
+            f"该门店 {format_clock(open_minutes)} 开门，请选择营业时间内的时段。"
+        )
+    if start_minutes + duration_minutes > close_minutes:
+        raise ValidationError(
+            f"该门店 {format_clock(close_minutes)} 打烊，"
+            f"无法安排 {duration_minutes} 分钟的用餐，请选择更早的时段。"
+        )
 
 
 class ReservationService:
@@ -178,6 +241,9 @@ class ReservationService:
             branch = await BranchRepo.get_branch(s, branch_id, active_only=True)
             if branch is None:
                 raise NotFoundError(f"门店 #{branch_id} 不存在。")
+            # The read-only query applies the same window rules as booking, so it
+            # cannot advertise a table for a slot ``book_table`` would refuse.
+            validate_bookable_slot(start, duration_minutes, branch.opening_hours)
             return await ReservationService._free_tables(
                 s, branch_id, party_size, area_filter, start, end
             )
@@ -237,6 +303,10 @@ class ReservationService:
             branch = await BranchRepo.get_branch(s, branch_id, active_only=True)
             if branch is None:
                 raise NotFoundError(f'门店 #{branch_id} 不存在。')
+
+            # Spec §11: reject a slot in the past, too far ahead, or outside the
+            # branch's opening hours before touching any table.
+            validate_bookable_slot(start_time, duration_minutes, branch.opening_hours)
 
             if deduplicate:
                 existing = await ReservationService._find_duplicate_booking(
@@ -356,9 +426,51 @@ class ReservationService:
         return free[0] if free else None
 
     @staticmethod
+    async def _suggest_times(
+        s, branch_id, party_size, area_filter, start_time, duration_minutes, opening_hours
+    ) -> List[str]:
+        """Concrete nearby start times that still have a free table (spec 11).
+
+        Steps outward from the requested time, returning up to
+        ``MAX_TIME_SUGGESTIONS`` ``HH:MM`` labels whose whole sitting fits inside
+        the opening hours. Empty when nothing nearby is free.
+        """
+        try:
+            open_minutes, close_minutes = parse_opening_hours(opening_hours)
+        except ValidationError:
+            return []
+        requested = start_time.hour * 60 + start_time.minute
+        base = start_time.replace(second=0, microsecond=0)
+        found: List[str] = []
+        for step in range(SUGGESTION_STEP_MINUTES, SUGGESTION_RADIUS_MINUTES + 1, SUGGESTION_STEP_MINUTES):
+            for candidate in (requested - step, requested + step):
+                if candidate < open_minutes or candidate + duration_minutes > close_minutes:
+                    continue
+                candidate_dt = base.replace(hour=candidate // 60, minute=candidate % 60)
+                free = await ReservationService._free_tables(
+                    s, branch_id, party_size, area_filter, candidate_dt,
+                    candidate_dt + timedelta(minutes=duration_minutes),
+                )
+                if free:
+                    found.append(candidate_dt.strftime("%H:%M"))
+                if len(found) >= MAX_TIME_SUGGESTIONS:
+                    return found
+        return found
+
+    @staticmethod
     async def _unavailable_message(
         s, branch_id, party_size, area_filter, start_time, end_time
     ):
+        duration_minutes = int((end_time - start_time).total_seconds() // 60)
+        branch = await BranchRepo.get_branch(s, branch_id)
+        slot_hints = (
+            await ReservationService._suggest_times(
+                s, branch_id, party_size, area_filter, start_time,
+                duration_minutes, branch.opening_hours,
+            )
+            if branch is not None
+            else []
+        )
         alt_areas = []
         if area_filter != 'any':
             free_elsewhere = await ReservationService._free_tables(
@@ -366,10 +478,15 @@ class ReservationService:
             )
             for table in free_elsewhere:
                 alt_areas.append(f"{seating_area_label(table.seating_area)}（餐桌 {table.label}）")
+        hints = []
+        if slot_hints:
+            hints.append(f"该时段前后仍空着的时段：{'、'.join(slot_hints)}")
         if alt_areas:
-            alternatives = f" 不过，以下座位还有空位：{'、'.join(sorted(set(alt_areas)))}。"
+            hints.append(f"其它座位区域还有空位：{'、'.join(sorted(set(alt_areas)))}")
+        if hints:
+            alternatives = " " + "；".join(hints) + "。"
         else:
-            alternatives = " 今晚更早或更晚的时间段也有空位。"
+            alternatives = " 请换个时间或座位区域再试。"
         area_text = (
             f"{seating_area_label(area_filter)}区域"
             if area_filter != "any"
@@ -470,6 +587,8 @@ class ReservationService:
                 if duration_minutes < 1:
                     raise ValidationError("用餐时长至少为 1 分钟。")
                 end_time = start_time + timedelta(minutes=duration_minutes)
+                if new_start_raw is not None or new_duration is not None:
+                    validate_bookable_slot(start_time, duration_minutes, reservation.branch.opening_hours)
                 area_filter = (
                     new_area.lower()
                     if new_area
@@ -752,4 +871,7 @@ __all__ = [
     "OCCUPYING_RESERVATION_STATUSES",
     "RESCHEDULABLE_STATUSES",
     "DEDUPLICATE_WINDOW_MINUTES",
+    "MIN_BOOKING_LEAD_MINUTES",
+    "MAX_BOOKING_DAYS",
+    "validate_bookable_slot",
 ]

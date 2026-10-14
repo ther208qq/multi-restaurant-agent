@@ -48,7 +48,8 @@ async def _make_branch(*specs):
     """Create an isolated branch; specs = [(label, area, capacity)]."""
     async with transactional_session() as s:
         branch = Branch(
-            name=f"__cb{uuid4().hex[:8]}", address="x", phone="x", is_active=True
+            name=f"__cb{uuid4().hex[:8]}", address="x", phone="x",
+            opening_hours="10:00 - 23:59", is_active=True,
         )
         s.add(branch)
         await s.flush()
@@ -68,8 +69,10 @@ async def _make_branch(*specs):
 
 
 def _slot_strings(days: int = 600, hour: int = 19, minute: int = 0):
-    """A far-future slot as the ``requested_date`` / ``requested_time`` strings."""
-    start = (datetime.now(timezone.utc) + timedelta(days=days)).replace(
+    """A bookable (in-window) slot as the ``requested_date`` / ``requested_time``
+    strings. ``days`` is a slot discriminator folded into the 1..25 day horizon."""
+    offset = days % 25 + 1
+    start = (datetime.now(timezone.utc) + timedelta(days=offset)).replace(
         hour=hour, minute=minute, second=0, microsecond=0
     )
     return start.strftime("%Y-%m-%d"), start.strftime("%H:%M")

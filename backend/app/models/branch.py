@@ -13,7 +13,7 @@ class Branch(Base):
     name = Column(String(100), nullable=False)
     address = Column(String(255), nullable=False)
     phone = Column(String(50), nullable=False)
-    opening_hours = Column(String(100), nullable=False, default="10:00 AM - 10:00 PM")
+    opening_hours = Column(String(100), nullable=False, default="10:00 - 22:00")
     is_active = Column(Boolean, default=True, nullable=False)
 
     # Relationships

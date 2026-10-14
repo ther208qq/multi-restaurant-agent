@@ -38,7 +38,10 @@ def _headers(customer_id: int) -> dict:
 
 
 def _slot(days: int, hour: int) -> datetime:
-    return (datetime.now(timezone.utc) + timedelta(days=days)).replace(
+    # ``days`` is a per-test slot discriminator; fold it into the bookable
+    # horizon (1..25 days) so the slot stays inside the 30-day window.
+    offset = days % 25 + 1
+    return (datetime.now(timezone.utc) + timedelta(days=offset)).replace(
         hour=hour, minute=0, second=0, microsecond=0
     )
 

@@ -29,7 +29,7 @@
 | 购物车 | 改数量/移除；切换门店或下单成功后自动清空 | 无（本地状态） |
 | ↳ 结算 | 选堂食/外带/外卖（外卖需地址）、整单与单品备注；改动即向预览接口报价并标出库存不足 | `POST /orders/preview` |
 | ↳ 提交订单 | 确认下单（库存以行锁扣减，价格以数据库为准） | `POST /orders` |
-| 预订座位 | 日期/时间/人数/区域（不限/室内/户外露台/天台花园）；实时显示该时段空桌数；**系统自动选桌** | `GET /reservations/availability` |
+| 预订座位 | 日期/时间/人数/区域（不限/室内/户外露台/天台花园）；实时显示该时段空桌数；**系统自动选桌**；仅接受营业时间内、未来 30 天内的时段（含 15 分钟提前量），非法时段直接提示原因 | `GET /reservations/availability` |
 | ↳ 提交预订 | 落库为 `pending`，等待门店确认 | `POST /reservations` |
 | 聊天 | 自由输入；5 个固定快捷词；显示订单/预订徽章；重置会话 | `POST /chat`（body `{message, branch_id}`） |
 | 登录 / 注册 | 邮箱密码登录；注册（姓名/邮箱/电话可选/密码） | `POST /auth/login`、`POST /auth/register` |
@@ -64,6 +64,7 @@
 **订单状态机**：`placed → confirmed → preparing → ready → delivered`，任意非终态可 `cancelled`（`cancelled → placed` 仅员工撤销误操作）。
 **预订状态机**：`pending → confirmed → seated → completed`，任意非终态可 `cancelled`，`cancelled → pending` 可恢复（恢复前会校验原时段是否仍空闲）。
 **占用语义**：`pending` / `confirmed` / `seated` 三种状态都**占住餐桌**——数据库排他约束与应用层查空桌用的是同一套「占用状态」；只有取消或完成才释放时段。
+**订位时间口径（Task20）**：席位必须落在门店 `opening_hours`（`HH:MM - HH:MM`，24 小时制）内，且**至少提前 15 分钟**、**最多未来 30 天**；`start + duration` 不得超过打烊时间。顾客表单 / 聊天 / 员工改约三条通道与空桌查询 `GET /reservations/availability` 共用同一 `validate_bookable_slot`——前端显示「有位」的时段，提交必然通过。`opening_hours` 解析失败即拒绝预订；员工改门店时的非法值也被 `BranchService` 拒绝。请求时段已满时，回复会扫描同日相邻时段，给出**确实有空**的具体时间（如「20:30、17:30」），不再只说「换个时间」。
 
 **权限与审计（Task18）**：
 - **门店权限**：带 `branch_id` 的员工只能看/改本门店数据（订单、预订、菜单、库存、餐桌、操作日志），请求里带别的门店 id 会被忽略或拒绝（`403 您没有权限访问该门店。`）；`branch_id` 为空的超级管理员不受限。
@@ -87,7 +88,7 @@
 | 能力 | 接口 | 现状 |
 |---|---|---|
 | 新建门店 | `POST /staff/branches` | `api.js` 有 `createBranch`，**无任何 UI** |
-| 编辑门店 | `PATCH /staff/branches/{id}` | 有 `updateBranch`，**无 UI**。名称/地址/营业时间/电话/FAQ 均改不了 |
+| 编辑门店 | `PATCH /staff/branches/{id}` | 有 `updateBranch`，**无 UI**。名称/地址/营业时间/电话/FAQ 均改不了（营业时间经 API 修改时须为 `HH:MM - HH:MM`，否则 400） |
 | 会话校验 | `GET /auth/me`、`GET /staff/me` | 定义了但**无人调用**（死代码） |
 | 列分类 | `GET /staff/menu/categories` | 定义了但无人调用，`MenuManager` 改用公开的 `GET /branches/{id}/menu` |
 | 列门店（员工） | `GET /staff/branches` | 定义了但无人调用，`AdminLayout` 复用公开 `GET /branches` |

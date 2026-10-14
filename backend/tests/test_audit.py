@@ -43,7 +43,10 @@ SYSTEM_BRANCH = 1  # seeded branch, used for menu/order tests
 async def _make_branch(*specs, label="__au"):
     """Create an isolated branch; specs = [(label, area, capacity)]."""
     async with transactional_session() as s:
-        branch = Branch(name=label, address="x", phone="x", is_active=True)
+        branch = Branch(
+            name=label, address="x", phone="x",
+            opening_hours="10:00 - 23:59", is_active=True,
+        )
         s.add(branch)
         await s.flush()
         table_ids = []
@@ -120,7 +123,10 @@ async def _logs(action=None, entity_id=None, branch_id=None, limit=200):
 
 
 def _slot(days=600, hour=19, minute=0):
-    return (datetime.now(timezone.utc) + timedelta(days=days)).replace(
+    # ``days`` is a per-test slot discriminator; fold it into the bookable
+    # horizon (1..25 days) so the slot stays inside the 30-day window.
+    offset = days % 25 + 1
+    return (datetime.now(timezone.utc) + timedelta(days=offset)).replace(
         hour=hour, minute=minute, second=0, microsecond=0
     )
 

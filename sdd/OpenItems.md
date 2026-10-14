@@ -241,8 +241,9 @@ Task19「经营统计与异常处理」已实现：按门店和日期统计订�
 
 ---
 
-## 十一、预订时间校验与时段推荐（待实现，2026-10-14 记录）
+## 十一、预订时间校验与时段推荐（**已完成 2026-10-14，见第十二节**）
 
+> 以下为记录当时的现状与方案，保留以便追溯；落地情况见第十二节。
 > 结论：**当前未实现**。`ReservationService.book_table` 只校验「餐桌是否有空」（排除约束 + 探测），
 > **不校验时间是否合理**——过去时间、营业时间、最远可订天数一概不管；「推荐时间」也只是一句泛泛的占位文案。
 
@@ -294,3 +295,27 @@ Task19「经营统计与异常处理」已实现：按门店和日期统计订�
 - 改 `service/reservation.py`（三入口共用）+ `seed.py`（营业时间格式）+ 员工编辑门店的前端校验/文档。
 - **不加 DB 列、不做迁移**。
 - 需**全量**跑 `pytest`（动了共用 Service），并重启后端（Windows `--reload` 会漏改，见第六节环境提醒）。
+
+---
+
+## 十二、预订时间校验与时段推荐（2026-10-14 完成）
+
+按第十一节实现。全量 **436 passed**（+22 新用例），`npm run build` 通过。
+
+**已定参数**：提前量 15 分钟、最远 30 天、最晚入座要求 `start + duration <= close`。
+
+**时间规则**（`backend/app/opening_hours.py` + `service/reservation.py`）：
+- 新增 `opening_hours.py`：`parse_opening_hours("HH:MM - HH:MM")->(open,close)`、`format_clock()`。**解析失败 / 越界 / 跨零点（`close <= open`）一律抛 `ValidationError`**。
+- 新增 `validate_bookable_slot(start, duration, opening_hours)`：① `start < now + 15min` → 400；② `start > now + 30 天` → 400；③ 未开门 / `start + duration > close` → 400。
+- **三入口共用**：`book_table`（顾客表单 + 聊天工具）、`list_available_tables`（`GET /reservations/availability`，staff 与顾客侧）都在取到门店后调用；`update_reservation` 的改约分支在**重算时段后**调用（纯改餐桌 / 改人数不触发）。→ 前端显示「有位」的时段，提交必然通过。
+- `models/branch.py` 与 `schemas/branch.py` 的默认值由不可解析的 `"10:00 AM - 10:00 PM"` 改为 `"10:00 - 22:00"`；`BranchService.create_branch/update_branch` 校验 `opening_hours`（员工改门店时非法值 400）。
+
+**时段推荐**（改写 `_unavailable_message`，新增 `_suggest_times`）：请求时段满座时，在**同一营业日**内以 30 分钟为步长、±240 分钟半径向两侧扫描（复用 `_free_tables`），最多给出 3 个**确实有空**的具体时间（如「该时段前后仍空着的时段：20:30、17:30」）；同时保留「其它座位区域还有空位」提示。找不到才退化为「请换个时间或座位区域再试」。
+
+**前端**：`ReservationModal` 保留空桌数与新增「非法时段原因」提示（原先把 400 静默当作无桌）；`BranchSelector` 兜底文案改为 `10:00 - 22:00`。
+
+**开发库**：核对后 `opening_hours` 已是规范格式（门店 1/2 分别 `10:00 - 22:00` / `11:00 - 23:00`），**无 schema 变更、无数据迁移**。
+
+**测试**：新增 `backend/tests/test_reservation_time_rules.py`（22 条：解析器合法/非法/跨零点、过去/提前量/超天数/未开门/留不足时长/不可解析、查空桌同规则、员工改约同规则、满座推荐命中真实空位、种子营业时间可解析、`BranchService` 校验）。因加了窗口校验，既有预订类用例的 `_slot` 由「400+ 天后」折进 1..25 天窗口、测试门店补 `opening_hours="10:00 - 23:59"`（`test_reservation_lifecycle/service/routes`、`test_audit`、`test_duplicate_requests`、`test_customer_booking/activity`）。
+
+**遗留（不在本次范围）**：`opening_hours` 仍是单段每日区间，无跨零点、无分时段（如午市/晚市两段）；提前量与 30 天是全局常量，非按门店配置；时段推荐只在**同一 UTC 日**内扫描，跨日要靠顾客另选日期。
