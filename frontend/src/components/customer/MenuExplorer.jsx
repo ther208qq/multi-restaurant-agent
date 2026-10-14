@@ -3,7 +3,7 @@ import VariantPicker from './VariantPicker';
 import MenuItemActions from './MenuItemActions';
 import { Utensils } from 'lucide-react';
 
-export default function MenuExplorer({ menuData, onAskAiToOrder, onAddToCart }) {
+export default function MenuExplorer({ menuData, onAddToCart }) {
   const [activeCategory, setActiveCategory] = useState('ALL');
   // Per-item draft: how many to add and, for items that carry variants, which
   // single variant is picked. Keyed by menu item id.
@@ -145,7 +145,6 @@ export default function MenuExplorer({ menuData, onAskAiToOrder, onAddToCart }) 
                   draft={d}
                   onPatch={patchDraft}
                   onAdd={handleAdd}
-                  onAskAi={onAskAiToOrder}
                 />
               </div>
             );

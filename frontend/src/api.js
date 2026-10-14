@@ -117,17 +117,6 @@ export const api = {
   getBranchMenu: (branchId) => request(`/branches/${branchId}/menu`, { method: 'GET' }),
   getBranchFaq: (branchId) => request(`/branches/${branchId}/faq`, { method: 'GET' }),
 
-  // Chat Agent
-  sendMessage: (message, branchId = null) =>
-    request(
-      '/chat',
-      {
-        method: 'POST',
-        body: JSON.stringify({ message, branch_id: branchId }),
-      },
-      'customer'
-    ),
-
   // Customer Orders & Reservations
   getMyOrders: () => request('/orders/me', { method: 'GET' }, 'customer'),
   getMyReservations: () => request('/reservations/me', { method: 'GET' }, 'customer'),

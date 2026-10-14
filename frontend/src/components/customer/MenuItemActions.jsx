@@ -1,12 +1,12 @@
 import React from 'react';
-import { AlertTriangle, ShoppingCart, Minus, Plus, MessageSquarePlus } from 'lucide-react';
+import { AlertTriangle, ShoppingCart, Minus, Plus } from 'lucide-react';
 
 /**
  * The per-item action row of the menu explorer: the stock badge, the quantity
  * stepper and the "add to cart" / "ask the AI" buttons. Kept in its own small
  * component so the explorer stays readable.
  */
-export default function MenuItemActions({ item, draft, onPatch, onAdd, onAskAi }) {
+export default function MenuItemActions({ item, draft, onPatch, onAdd }) {
   const isAvailable = item.is_available && item.stock_quantity > 0;
   return (
     <>
@@ -70,17 +70,6 @@ export default function MenuItemActions({ item, draft, onPatch, onAdd, onAskAi }
             </button>
           </div>
         )}
-      </div>
-
-      <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '2px' }}>
-        <button
-          type="button"
-          className="btn-sm"
-          style={{ background: 'var(--primary-light)', color: 'var(--primary)', display: 'flex', alignItems: 'center', gap: '4px', fontWeight: 600 }}
-          onClick={() => onAskAi(`我想点 1 份 ${item.name}`)}
-        >
-          <MessageSquarePlus size={12} /> 让 AI 下单
-        </button>
       </div>
     </>
   );

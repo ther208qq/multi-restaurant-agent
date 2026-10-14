@@ -1,5 +1,5 @@
 import React from 'react';
-import { UtensilsCrossed, Sparkles, Shield, User, LogOut, Clock, ShoppingBag, Calendar } from 'lucide-react';
+import { UtensilsCrossed, Shield, User, LogOut, Clock, ShoppingBag, Calendar } from 'lucide-react';
 
 export default function Navbar({
   currentView,
@@ -33,7 +33,7 @@ export default function Navbar({
           onClick={() => onSwitchView('customer')}
           style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
         >
-          <Sparkles size={15} /> 顾客点餐与咨询
+          <UtensilsCrossed size={15} /> 顾客点餐
         </button>
         <button
           className={`nav-tab-btn ${currentView === 'admin' ? 'active' : ''}`}

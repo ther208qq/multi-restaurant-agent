@@ -12,12 +12,11 @@ import MenuExplorer from './components/customer/MenuExplorer';
 import CartPanel from './components/customer/CartPanel';
 import CheckoutModal from './components/customer/CheckoutModal';
 import ReservationModal from './components/customer/ReservationModal';
-import ChatWidget from './components/customer/ChatWidget';
 import CustomerAuthModal from './components/customer/CustomerAuthModal';
 import MyHistoryModal from './components/customer/MyHistoryModal';
 import AdminLoginModal from './components/admin/AdminLoginModal';
 import AdminLayout from './components/admin/AdminLayout';
-import { Shield, Sparkles, AlertCircle } from 'lucide-react';
+import { Shield } from 'lucide-react';
 
 export default function App() {
   const [currentView, setCurrentView] = useState('customer'); // 'customer' | 'admin'
@@ -41,9 +40,6 @@ export default function App() {
   // dish in two sizes stays two lines; cleared on branch switch and after an
   // order is placed.
   const [cart, setCart] = useState([]);
-
-  // Chat prefill trigger
-  const [prefilledPrompt, setPrefilledPrompt] = useState(null);
 
   // Initial Data Fetch
   const loadBranches = async () => {
@@ -179,7 +175,7 @@ export default function App() {
       {/* Main Viewport */}
       {currentView === 'customer' ? (
         <main className="chat-page">
-          {/* Left Sidebar: Branch Info & Live Menu with Stock */}
+          {/* Left Sidebar: Branch Info & Cart */}
           <aside className="chat-sidebar">
             <BranchSelector
               branches={branches}
@@ -194,28 +190,13 @@ export default function App() {
               onRemove={removeCart}
               onCheckout={handleOpenCheckout}
             />
+          </aside>
 
+          {/* Main Area: Live Menu with Stock */}
+          <section style={{ flex: 1, display: 'flex', minHeight: 0, minWidth: 0 }}>
             <MenuExplorer
               menuData={menuData}
               onAddToCart={addToCart}
-              onAskAiToOrder={(prompt) => {
-                if (!currentCustomer) {
-                  setIsCustomerAuthOpen(true);
-                } else {
-                  setPrefilledPrompt(prompt);
-                }
-              }}
-            />
-          </aside>
-
-          {/* Right Area: Interactive Conversational AI Agent */}
-          <section style={{ flex: 1, display: 'flex', minHeight: 0, minWidth: 0 }}>
-            <ChatWidget
-              currentCustomer={currentCustomer}
-              selectedBranch={selectedBranch}
-              onRequireAuth={() => setIsCustomerAuthOpen(true)}
-              prefilledPrompt={prefilledPrompt}
-              onClearPrefill={() => setPrefilledPrompt(null)}
             />
           </section>
         </main>
