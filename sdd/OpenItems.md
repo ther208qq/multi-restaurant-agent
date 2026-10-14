@@ -300,13 +300,14 @@ Task19「经营统计与异常处理」已实现：按门店和日期统计订�
 
 ## 十二、预订时间校验与时段推荐（2026-10-14 完成）
 
-按第十一节实现。全量 **436 passed**（+22 新用例），`npm run build` 通过。
+按第十一节实现。全量 **439 passed**（+25 新用例），`npm run build` 通过。
 
-**已定参数**：提前量 15 分钟、最远 30 天、最晚入座要求 `start + duration <= close`。
+**已定参数**：入座需比"现在"**晚 15 分钟以上**（严格——18:45 订 19:00 拒）、最远 30 天、最晚入座要求 `start + duration <= close`（22:00 打烊 + 90 分钟 → **最晚 20:30** 入座，最早 10:00）。
 
 **时间规则**（`backend/app/opening_hours.py` + `service/reservation.py`）：
 - 新增 `opening_hours.py`：`parse_opening_hours("HH:MM - HH:MM")->(open,close)`、`format_clock()`。**解析失败 / 越界 / 跨零点（`close <= open`）一律抛 `ValidationError`**。
-- 新增 `validate_bookable_slot(start, duration, opening_hours)`：① `start < now + 15min` → 400；② `start > now + 30 天` → 400；③ 未开门 / `start + duration > close` → 400。
+- 新增 `validate_bookable_slot(start, duration, opening_hours)`：① `start <= now + 15min` → 400（严格）；② `start > now + 30 天` → 400；③ 未开门 / `start + duration > close` → 400。
+- **"现在"取本地墙钟**（新增 `current_wall_time()`）：入座时间以"墙上时间贴 UTC 标签"存储（`parse_slot`），若拿**真实 UTC** 比较，本地已过约 8 小时（=本地 UTC 偏移）内的时段仍会被当成未来——实测本地 19:50 时订"今天 18:00"竟能成功。改用服务器本地墙钟后，本地 19:00 订 18:00 会被拒。**前提：服务器运行在门店时区**（单机 demo 成立；多时区门店需按门店偏移，见遗留）。
 - **三入口共用**：`book_table`（顾客表单 + 聊天工具）、`list_available_tables`（`GET /reservations/availability`，staff 与顾客侧）都在取到门店后调用；`update_reservation` 的改约分支在**重算时段后**调用（纯改餐桌 / 改人数不触发）。→ 前端显示「有位」的时段，提交必然通过。
 - `models/branch.py` 与 `schemas/branch.py` 的默认值由不可解析的 `"10:00 AM - 10:00 PM"` 改为 `"10:00 - 22:00"`；`BranchService.create_branch/update_branch` 校验 `opening_hours`（员工改门店时非法值 400）。
 
@@ -316,6 +317,6 @@ Task19「经营统计与异常处理」已实现：按门店和日期统计订�
 
 **开发库**：核对后 `opening_hours` 已是规范格式（门店 1/2 分别 `10:00 - 22:00` / `11:00 - 23:00`），**无 schema 变更、无数据迁移**。
 
-**测试**：新增 `backend/tests/test_reservation_time_rules.py`（22 条：解析器合法/非法/跨零点、过去/提前量/超天数/未开门/留不足时长/不可解析、查空桌同规则、员工改约同规则、满座推荐命中真实空位、种子营业时间可解析、`BranchService` 校验）。因加了窗口校验，既有预订类用例的 `_slot` 由「400+ 天后」折进 1..25 天窗口、测试门店补 `opening_hours="10:00 - 23:59"`（`test_reservation_lifecycle/service/routes`、`test_audit`、`test_duplicate_requests`、`test_customer_booking/activity`）。
+**测试**：新增 `backend/tests/test_reservation_time_rules.py`（25 条：解析器合法/非法/跨零点、过去/提前量（含 18:45→19:00 严格边界）/超天数/未开门/留不足时长/不可解析、**本地已过而 UTC 未到必须拒**、**最晚入座 = 打烊 − 时长**、查空桌同规则、员工改约同规则、满座推荐命中真实空位、种子营业时间可解析、`BranchService` 校验）。因加了窗口校验，既有预订类用例的 `_slot` 由「400+ 天后」折进 1..25 天窗口、测试门店补 `opening_hours="10:00 - 23:59"`（`test_reservation_lifecycle/service/routes`、`test_audit`、`test_duplicate_requests`、`test_customer_booking/activity`）。
 
-**遗留（不在本次范围）**：`opening_hours` 仍是单段每日区间，无跨零点、无分时段（如午市/晚市两段）；提前量与 30 天是全局常量，非按门店配置；时段推荐只在**同一 UTC 日**内扫描，跨日要靠顾客另选日期。
+**遗留（不在本次范围）**：`opening_hours` 仍是单段每日区间，无跨零点、无分时段（如午市/晚市两段）；提前量与 30 天是全局常量，非按门店配置；时段推荐只在**同一 UTC 日**内扫描，跨日要靠顾客另选日期。另：**聊天节点解析相对日期仍用 UTC 日**（`reservation_node` 的「今天/明天」取 `datetime.now(timezone.utc)`），本地 00:00–08:00 时 UTC 日滞后一天，会把「今晚订位」解析成昨天、落入过去而被新规则拒——本次未动（属 agent 层，且需同步改 3 个节点测试的断言），需要时以 `current_wall_time()` 统一。

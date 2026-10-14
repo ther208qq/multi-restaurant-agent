@@ -64,7 +64,7 @@
 **订单状态机**：`placed → confirmed → preparing → ready → delivered`，任意非终态可 `cancelled`（`cancelled → placed` 仅员工撤销误操作）。
 **预订状态机**：`pending → confirmed → seated → completed`，任意非终态可 `cancelled`，`cancelled → pending` 可恢复（恢复前会校验原时段是否仍空闲）。
 **占用语义**：`pending` / `confirmed` / `seated` 三种状态都**占住餐桌**——数据库排他约束与应用层查空桌用的是同一套「占用状态」；只有取消或完成才释放时段。
-**订位时间口径（Task20）**：席位必须落在门店 `opening_hours`（`HH:MM - HH:MM`，24 小时制）内，且**至少提前 15 分钟**、**最多未来 30 天**；`start + duration` 不得超过打烊时间。顾客表单 / 聊天 / 员工改约三条通道与空桌查询 `GET /reservations/availability` 共用同一 `validate_bookable_slot`——前端显示「有位」的时段，提交必然通过。`opening_hours` 解析失败即拒绝预订；员工改门店时的非法值也被 `BranchService` 拒绝。请求时段已满时，回复会扫描同日相邻时段，给出**确实有空**的具体时间（如「20:30、17:30」），不再只说「换个时间」。
+**订位时间口径（Task20）**：席位必须落在门店 `opening_hours`（`HH:MM - HH:MM`，24 小时制）内，且**比当前时间（本地墙钟）晚 15 分钟以上**、**最多未来 30 天**；`start + duration` 不得超过打烊时间（22:00 打烊、90 分钟 → 最早 10:00、**最晚 20:30** 入座）。"现在"取**服务器本地墙钟**（`current_wall_time()`）而非 UTC，否则本地已过的时段仍会被当成未来。顾客表单 / 聊天 / 员工改约三条通道与空桌查询 `GET /reservations/availability` 共用同一 `validate_bookable_slot`——前端显示「有位」的时段，提交必然通过。`opening_hours` 解析失败即拒绝预订；员工改门店时的非法值也被 `BranchService` 拒绝。请求时段已满时，回复会扫描同日相邻时段，给出**确实有空**的具体时间（如「20:30、17:30」），不再只说「换个时间」。
 
 **权限与审计（Task18）**：
 - **门店权限**：带 `branch_id` 的员工只能看/改本门店数据（订单、预订、菜单、库存、餐桌、操作日志），请求里带别的门店 id 会被忽略或拒绝（`403 您没有权限访问该门店。`）；`branch_id` 为空的超级管理员不受限。

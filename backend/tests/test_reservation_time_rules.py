@@ -33,6 +33,7 @@ from backend.app.service.reservation import (
     MAX_BOOKING_DAYS,
     MIN_BOOKING_LEAD_MINUTES,
     ReservationService,
+    current_wall_time,
     validate_bookable_slot,
 )
 
@@ -124,6 +125,22 @@ def test_validate_bookable_slot_accepts_a_good_slot():
     validate_bookable_slot(_at(1, 20), 90, VALID_HOURS)
 
 
+def test_lead_time_boundary_is_strict():
+    """18:45 -> 19:00 (exactly 15 minutes out) is refused; 16 minutes is fine."""
+    now = _at(1, 18, 45)
+    with pytest.raises(ValidationError):
+        validate_bookable_slot(_at(1, 19, 0), 90, "00:00 - 23:59", now=now)
+    validate_bookable_slot(_at(1, 19, 1), 90, "00:00 - 23:59", now=now)
+
+
+def test_last_seating_is_close_minus_duration():
+    """With a 90-minute sitting and a 22:00 close, 20:30 is the last start."""
+    now = _at(1, 10, 0)
+    validate_bookable_slot(_at(1, 20, 30), 90, VALID_HOURS, now=now)
+    with pytest.raises(ValidationError):
+        validate_bookable_slot(_at(1, 21, 0), 90, VALID_HOURS, now=now)
+
+
 # --------------------------------------------------------------------------- #
 # book_table enforces the window
 # --------------------------------------------------------------------------- #
@@ -139,11 +156,23 @@ async def test_booking_in_the_past_is_rejected():
 async def test_booking_inside_the_lead_time_is_rejected():
     branch_id, _ = await _make_branch()
     try:
-        soon = datetime.now(timezone.utc) + timedelta(
+        soon = current_wall_time() + timedelta(
             minutes=MIN_BOOKING_LEAD_MINUTES - 1
         )
         with pytest.raises(ValidationError):
             await _book(branch_id, soon)
+    finally:
+        await _cleanup(branch_id)
+
+
+async def test_booking_a_slot_that_already_passed_locally_is_rejected():
+    """The bug this rule exists to close: a slot hours in the local past is still
+    "in the future" in UTC (the branch's local day runs ahead of UTC), so the
+    comparison must use the local wall clock, not the UTC instant."""
+    branch_id, _ = await _make_branch(opening_hours="00:00 - 23:59")
+    try:
+        with pytest.raises(ValidationError):
+            await _book(branch_id, current_wall_time() - timedelta(hours=1))
     finally:
         await _cleanup(branch_id)
 

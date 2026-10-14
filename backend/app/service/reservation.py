@@ -125,6 +125,21 @@ def _coerce_start_time(value: Any) -> datetime:
     return value
 
 
+def current_wall_time() -> datetime:
+    """The current time in the wall-clock frame bookings are stored in.
+
+    Bookings are stored as the wall clock the guest typed, labelled UTC
+    (``parse_slot``). Comparing them against the *real* UTC instant lets a
+    "today 18:00" booking through hours after 18:00 has passed locally, because
+    the branch's local time runs ahead of UTC. Taking "now" from the server's
+    local wall clock keeps both sides of every time comparison in the same frame,
+    so at 19:00 a booking for 18:00 is refused. Assumes the server runs in the
+    branch's timezone; a multi-timezone deployment would need a per-branch
+    offset.
+    """
+    return datetime.now().replace(tzinfo=timezone.utc)
+
+
 def validate_bookable_slot(
     start_time: datetime,
     duration_minutes: int,
@@ -134,20 +149,24 @@ def validate_bookable_slot(
 ) -> None:
     """Reject a slot outside the bookable window or the branch's opening hours.
 
-    Three rules (spec §11): the start must be at least
-    :data:`MIN_BOOKING_LEAD_MINUTES` in the future and no further than
-    :data:`MAX_BOOKING_DAYS` ahead, and the whole sitting
+    Three rules (spec §11): the start must be *more* than
+    :data:`MIN_BOOKING_LEAD_MINUTES` ahead, no further than
+    :data:`MAX_BOOKING_DAYS` out, and the whole sitting
     (``start_time + duration_minutes``) must fit inside the branch's opening
-    hours. Raises :class:`ValidationError` otherwise.
+    hours. "Now" is the local wall clock (:func:`current_wall_time`) so a slot
+    that has already passed locally is refused even when UTC is still behind it.
+    Raises :class:`ValidationError` otherwise.
 
     Shared by ``book_table``, ``list_available_tables`` and the staff reschedule
     path, so a slot the availability query offers is one ``book_table`` accepts --
     otherwise the form would show "tables free" and then refuse the submission.
     """
-    now = now or datetime.now(timezone.utc)
-    if start_time < now + timedelta(minutes=MIN_BOOKING_LEAD_MINUTES):
+    now = now or current_wall_time()
+    # Strictly more than the lead: at 18:45 a 19:00 seating (exactly 15 minutes
+    # out) is already too close, per the "book ahead" rule.
+    if start_time <= now + timedelta(minutes=MIN_BOOKING_LEAD_MINUTES):
         raise ValidationError(
-            f"预订时间需至少提前 {MIN_BOOKING_LEAD_MINUTES} 分钟。"
+            f"预订时间需比当前时间晚 {MIN_BOOKING_LEAD_MINUTES} 分钟以上。"
         )
     if start_time > now + timedelta(days=MAX_BOOKING_DAYS):
         raise ValidationError(
@@ -874,4 +893,5 @@ __all__ = [
     "MIN_BOOKING_LEAD_MINUTES",
     "MAX_BOOKING_DAYS",
     "validate_bookable_slot",
+    "current_wall_time",
 ]
