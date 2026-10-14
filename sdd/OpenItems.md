@@ -238,3 +238,59 @@ Task19「经营统计与异常处理」已实现：按门店和日期统计订�
 - **时间语义**：沿用既有约定，前端把输入当**墙上时间**直接给 `requested_date`+`requested_time`，由 `parse_slot` 按 UTC 存；不做时区换算。
 - **架构边界测试会扫字面量**：`routes/` 下不能出现 `select(`、`.execute(`、`.commit(`，也不能 import `backend.app.repo` / `backend.app.agent.tools`。
 - 本次改动**动了既有员工路由与 repo/service**，所以 `pytest` 必须全量跑（不是只跑新用例）。
+
+---
+
+## 十一、预订时间校验与时段推荐（待实现，2026-10-14 记录）
+
+> 结论：**当前未实现**。`ReservationService.book_table` 只校验「餐桌是否有空」（排除约束 + 探测），
+> **不校验时间是否合理**——过去时间、营业时间、最远可订天数一概不管；「推荐时间」也只是一句泛泛的占位文案。
+
+### 现状（证据）
+
+| 检查项 | 现状 | 位置 |
+|---|---|---|
+| 人数 ≥ 1 | ✅ 有 | `service/reservation.py:230` |
+| 时间格式可解析 | ✅ 有，但只补时区、不判早晚 | `_coerce_start_time` `service/reservation.py:95` |
+| 门店存在且启用 | ✅ 有（与营业时段无关） | `service/reservation.py:237` |
+| **过去时间** | ❌ 不校验 | `book_table` 内无 `now()` 比较（唯一的 `now()` 在 `:335`，是判重窗口） |
+| **营业时间** | ❌ 不生效 | `Branch.opening_hours` 是自由文本（种子 `"10:00 - 22:00"` / `"11:00 - 23:00"`），全库从未解析 |
+| **最远可订天数** | ❌ 无 | — |
+| **时段推荐** | ⚠️ 只推「其它区域」；时间上只有固定一句「今晚更早或更晚的时间段也有空位」，不计算 | `_unavailable_message` `service/reservation.py:359` |
+
+`schema/reservation.py` 的 `ReservationCreate` 无任何 `validator`（`grep` → none）。
+
+### 已定口径（本轮确认）
+
+1. **范围：全部实现** —— 过去时间 + 营业时间（含最晚入座）+ 最远可订天数 + 具体时段推荐。
+2. **`opening_hours` 规范成可解析格式 `HH:MM - HH:MM`** —— 解析失败即拒绝预订；同步改种子数据与「员工编辑门店」的校验。**不加结构化列、不做迁移**（那要改表）。
+
+### 实现要点（待做）
+
+全部落在 **Service 层**（`service/reservation.py`）。`book_table` 被 **顾客表单 / 聊天 Agent / 员工改约** 三处共用，改一处三入口同时生效：
+
+1. **时间窗口校验**（`book_table` 开头，`:230` 附近）：
+   - 拒绝 `start_time <= now`（或「至少提前 N 分钟」，N 待定，默认 0）；
+   - 拒绝超出最远可订天数（默认 30 天，待定）。
+2. **营业时间校验**：
+   - 新增解析器：`opening_hours`（`HH:MM - HH:MM`）→ `(open, close)`；解析失败抛 `ValidationError`。
+   - **最晚入座规则**（待定，建议）：`start_time + duration_minutes <= close`（必须留足用餐时长），否则拒绝并提示。
+   - 跨零点写法（如 `18:00 - 02:00`）暂不支持——要么明确拒绝，要么单列一条处理，先记着。
+3. **真正的时段推荐**（改写 `_unavailable_message` 或新增 `suggest_slots`）：
+   - 在请求日**同一营业日内**按固定步长（如 30 分钟）前后扫描，算出**具体有位的时段**（复用 `_free_tables`），给出「19:00 已满，18:00 或 20:30 有位」这类结论。
+   - 保留既有的「其它区域」提示（`_free_tables(..., 'any', ...)`）。
+4. **`list_available_tables` 同步受约束**：顾客的 `GET /reservations/availability` 与员工查空桌要走同一时间窗口，否则前端显示「有位」、提交却被拒，自相矛盾。
+
+### 测试（待补）
+
+- 过去时间 → 400；超最远天数 → 400。
+- 打烊后 / 未开门 / 最晚入座留不足时长 → 400；`opening_hours` 解析失败也拒绝。
+- 满座时推荐命中：「某时段满」返回的建议里包含**真的有空**的时段。
+- 三入口一致：顾客路由、Agent 工具、员工改约走同一规则。
+- `opening_hours` 规范化后，种子数据与「员工编辑门店」校验同步。
+
+### 影响面 / scope guard
+
+- 改 `service/reservation.py`（三入口共用）+ `seed.py`（营业时间格式）+ 员工编辑门店的前端校验/文档。
+- **不加 DB 列、不做迁移**。
+- 需**全量**跑 `pytest`（动了共用 Service），并重启后端（Windows `--reload` 会漏改，见第六节环境提醒）。
