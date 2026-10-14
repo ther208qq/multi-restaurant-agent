@@ -189,3 +189,52 @@ Task19「经营统计与异常处理」已实现：按门店和日期统计订�
 2. 统计**只按 UTC 日**分桶，没有按门店时区偏移；跨时区门店的「今天」会差一天。
 3. 统计页无导出（CSV/打印），条形图为纯 CSS（未引入图表库）。
 4. 顾问锁是**单库级别**的：将来多实例部署时它仍在 PostgreSQL 内生效（本来就是库级锁），但若把查重挪到应用缓存里就会失效——目前无此计划。
+
+---
+
+## 十、顾客自助下单与预约（2026-10-14 完成）
+
+### 目标
+
+改前前端**没有任何下单/订位表单**，交易只能走聊天。本次补上「侧栏购物车 + 结算弹窗」与「预约表单」，交易入口变为三条（见 `Capabilities.md` 第 0 节）。
+
+**查证结论**：Service 层与 schema 都已具备，**只缺顾客侧 HTTP 路由**，不动 Service、不动数据库、不做迁移。
+
+**已定的三项决策**：① 侧栏购物车 + 结算弹窗；② 预约只选区域、由系统自动配桌（顾客不能指定桌号）；③ 直接下单**不**套用 5 分钟去重。
+
+> 完整方案（含验证步骤、scope guard）见会话计划文件
+> `C:\Users\ther\.claude\plans\silly-wishing-cosmos.md`，本节只记进度。
+
+### 完成情况（2026-10-14）
+
+在前一版半截重构（`_loaded` / `from_order` / `from_reservation` / `parse_slot` 等）之上补齐顾客侧接口与前端界面。**全量 `pytest`：414 passed**（含新增 15 个用例），`npm run build` 通过。
+
+后端在既有半截重构之上补齐（改动 7 个既有文件 + 新增 2 个测试文件）：
+
+| 文件 | 已做的改动 |
+|---|---|
+| `schemas/order.py` | 新增模块级 `_loaded(obj, name)`（从实例 `__dict__` 读关系，避免异步上下文触发懒加载）；`OrderItemResponse.from_item()`；`OrderResponse.from_order(order, *, customer_name=None)` |
+| `schemas/reservation.py` | 新增 `_loaded`、`parse_slot(date, time)`（`YYYY-MM-DD`+`HH:MM` → UTC datetime，格式错抛 `ValidationError`，文案与员工端原内联版一致）、`SLOT_FORMAT_ERROR`；`ReservationCreate.to_start_time()`；`ReservationAvailabilityItem.from_table()`；`ReservationResponse.from_reservation(r, *, customer_name=None)` |
+| `schemas/__init__.py` | 导出 `ReservationAvailabilityItem`、`parse_slot` |
+| `routes/staff_orders.py` | 删掉本地 `_format_order_response`，两处改用 `OrderResponse.from_order(...)` |
+| `routes/staff_reservations.py` | 删掉本地两个 `_format_*`，改用 schema 构造器；可用性查询的 `datetime.strptime` 内联解析换成 `parse_slot` |
+| `repo/order.py` | `list_orders` 新增 `with_items_menu_item` 选项（镜像 `get_order` 已有参数） |
+| `service/order.py` | `get_order`/`list_orders` 改为 `with_items_menu_item=True`（这样行回执能带菜名） |
+
+### 本次新增
+
+- **`schemas/order.py`**：新增 `OrderPreviewLine` / `OrderPreviewResponse`（形状取自 `OrderService.preview_order` 返回），并在 `schemas/__init__.py` 导出。
+- **`routes/customer_orders.py`**：新增 4 个顾客侧路由 `POST /orders/preview`、`POST /orders`、`GET /reservations/availability`、`POST /reservations`，全部 `Depends(get_current_customer)`，`customer_id` 只从 JWT 取；下单 `deduplicate=False`、订位 `deduplicate=True`。
+- **后端测试**：`backend/tests/test_customer_ordering.py`（8 例）、`test_customer_booking.py`（7 例）——覆盖预览不扣库存、下单原子扣减 + 审计、价格以数据库为准（伪造 `price_delta` 被忽略）、外卖缺地址 400、库存不足 409 且不留痕、伪造顾客 id 被忽略、重复订位返回同一笔、撞车 409、坏日期 400、未知门店 404、未登录 401。
+- **前端**：`api.js` 四个方法；`utils/datetime.js`（墙上时间格式化）；`MenuExplorer` 加购物车 + 规格单选（`VariantPicker` / `MenuItemActions` 两个小部件）；新建 `CartPanel.jsx`、`CheckoutModal.jsx`（实时预览报价 + 单品备注）、`ReservationModal.jsx`（实时空桌数，系统自动选桌）；`Navbar` 加「预订座位」；`App.jsx` 提升 `cart` 状态并在**切换门店时清空**、下单后**重拉菜单**（库存已变）。
+- **既有时间显示**：`MyHistoryModal.jsx`、`ReservationsManager.jsx` 的 `toLocaleString()` 改为走 `utils/datetime.js`（墙上时间），与聊天回复口径一致。
+- **文档**：`Capabilities.md` 第 0 节改写为「三条交易通道」，顾客侧能力表补 7 行；`README.md` 补顾客侧能力与时间语义限制。
+- 验证后**单次提交**（英文 + `Co-Authored-By`），仍在 `main`，不纳入 `sdd/Spec.md`、`sdd/Tasks.md` 的既有工作区改动。
+
+### 关键坑（实现时别踩）
+
+- **`from_order`/`from_reservation` 读关系一律走 `_loaded`**：新路由用 `OrderService.get_order(order.id)`（已带 `with_items_menu_item=True`）回读后再构造，否则 `branch_name`/`customer_name` 为空、甚至异步懒加载报错。
+- **`deduplicate` 有意不一致**：下单 `False`（顾客可能真的想再来一份），订位 `True`（重复订位会让同一拨人**占住两张不同的桌**，排除约束拦不住它）——这正是 Task19 给 Agent 加该保护的原因。
+- **时间语义**：沿用既有约定，前端把输入当**墙上时间**直接给 `requested_date`+`requested_time`，由 `parse_slot` 按 UTC 存；不做时区换算。
+- **架构边界测试会扫字面量**：`routes/` 下不能出现 `select(`、`.execute(`、`.commit(`，也不能 import `backend.app.repo` / `backend.app.agent.tools`。
+- 本次改动**动了既有员工路由与 repo/service**，所以 `pytest` 必须全量跑（不是只跑新用例）。

@@ -1,8 +1,24 @@
 import React, { useState } from 'react';
-import { Utensils, MessageSquarePlus, AlertTriangle } from 'lucide-react';
+import VariantPicker from './VariantPicker';
+import MenuItemActions from './MenuItemActions';
+import { Utensils } from 'lucide-react';
 
-export default function MenuExplorer({ menuData, onAskAiToOrder }) {
+export default function MenuExplorer({ menuData, onAskAiToOrder, onAddToCart }) {
   const [activeCategory, setActiveCategory] = useState('ALL');
+  // Per-item draft: how many to add and, for items that carry variants, which
+  // single variant is picked. Keyed by menu item id.
+  const [draft, setDraft] = useState({});
+
+  const draftFor = (itemId) => draft[itemId] || { qty: 1, variantId: null };
+  const patchDraft = (itemId, patch) =>
+    setDraft((prev) => ({ ...prev, [itemId]: { ...draftFor(itemId), ...patch } }));
+
+  const handleAdd = (item) => {
+    const d = draftFor(item.id);
+    const variant = (item.variants || []).find((v) => v.id === d.variantId) || null;
+    onAddToCart(item, variant, d.qty);
+    patchDraft(item.id, { qty: 1, variantId: null });
+  };
 
   if (!menuData || !menuData.categories) {
     return (
@@ -85,6 +101,8 @@ export default function MenuExplorer({ menuData, onAskAiToOrder }) {
         ) : (
           displayedItems.map((item) => {
             const isAvailable = item.is_available && item.stock_quantity > 0;
+            const d = draftFor(item.id);
+            const variants = item.variants || [];
             return (
               <div
                 key={item.id}
@@ -114,71 +132,21 @@ export default function MenuExplorer({ menuData, onAskAiToOrder }) {
                   </p>
                 )}
 
-                {item.variants && item.variants.length > 0 && (
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: '2px' }}>
-                    {item.variants.map((v) => (
-                      <span
-                        key={v.id}
-                        style={{
-                          fontSize: '0.7rem',
-                          background: '#f1f5f9',
-                          padding: '1px 6px',
-                          borderRadius: '4px',
-                          color: '#475569',
-                        }}
-                      >
-                        {v.variant_name} {v.price_delta > 0 ? `(+$${v.price_delta})` : ''}
-                      </span>
-                    ))}
-                  </div>
+                {variants.length > 0 && (
+                  <VariantPicker
+                    variants={variants}
+                    selectedId={d.variantId}
+                    onSelect={(variantId) => patchDraft(item.id, { variantId })}
+                  />
                 )}
 
-                <div
-                  style={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                    marginTop: '4px',
-                    paddingTop: '4px',
-                    borderTop: '1px dashed #f1f5f9',
-                  }}
-                >
-                  {isAvailable ? (
-                    <span style={{ fontSize: '0.75rem', color: '#15803d', fontWeight: 600 }}>
-                      ✓ 有货（{item.stock_quantity}）
-                    </span>
-                  ) : (
-                    <span
-                      style={{
-                        fontSize: '0.75rem',
-                        color: '#b91c1c',
-                        fontWeight: 600,
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '4px',
-                      }}
-                    >
-                      <AlertTriangle size={12} /> 已售罄
-                    </span>
-                  )}
-
-                  {isAvailable && (
-                    <button
-                      className="btn-sm"
-                      style={{
-                        background: 'var(--primary-light)',
-                        color: 'var(--primary)',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '4px',
-                        fontWeight: 600,
-                      }}
-                      onClick={() => onAskAiToOrder(`我想点 1 份 ${item.name}`)}
-                    >
-                      <MessageSquarePlus size={12} /> 让 AI 下单
-                    </button>
-                  )}
-                </div>
+                <MenuItemActions
+                  item={item}
+                  draft={d}
+                  onPatch={patchDraft}
+                  onAdd={handleAdd}
+                  onAskAi={onAskAiToOrder}
+                />
               </div>
             );
           })

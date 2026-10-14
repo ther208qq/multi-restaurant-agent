@@ -363,7 +363,11 @@ class OrderService:
     ) -> Order:
         async with transactional_session(session) as s:
             order = await OrderRepo.get_order(
-                s, order_id, with_items=True, with_customer=True, with_branch=True
+                s,
+                order_id,
+                with_items_menu_item=True,
+                with_customer=True,
+                with_branch=True,
             )
             if order is None:
                 raise NotFoundError(f'订单 #{order_id} 不存在。')
@@ -384,7 +388,7 @@ class OrderService:
                 customer_id=customer_id,
                 branch_id=branch_id,
                 order_status=order_status,
-                with_items=True,
+                with_items_menu_item=True,
                 with_customer=True,
                 with_branch=True,
                 limit=limit,

@@ -1,5 +1,5 @@
 import React from 'react';
-import { UtensilsCrossed, Sparkles, Shield, User, LogOut, Clock, ShoppingBag } from 'lucide-react';
+import { UtensilsCrossed, Sparkles, Shield, User, LogOut, Clock, ShoppingBag, Calendar } from 'lucide-react';
 
 export default function Navbar({
   currentView,
@@ -9,6 +9,7 @@ export default function Navbar({
   onOpenCustomerAuth,
   onOpenStaffAuth,
   onOpenMyHistory,
+  onOpenReservation,
   onCustomerLogout,
   onStaffLogout,
 }) {
@@ -46,34 +47,43 @@ export default function Navbar({
       {/* User Actions */}
       <div className="nav-actions">
         {currentView === 'customer' ? (
-          currentCustomer ? (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <button
-                onClick={onOpenMyHistory}
-                className="btn-outline btn-sm"
-                style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
-              >
-                <ShoppingBag size={14} /> 我的记录
-              </button>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem' }}>
-                <span className="badge badge-neutral" style={{ padding: '4px 8px' }}>
-                  <User size={13} style={{ marginRight: '4px' }} />
-                  {currentCustomer.name}
-                </span>
-                <button
-                  onClick={onCustomerLogout}
-                  title="退出登录"
-                  style={{ color: 'var(--text-muted)', padding: '4px' }}
-                >
-                  <LogOut size={16} />
-                </button>
-              </div>
-            </div>
-          ) : (
-            <button onClick={onOpenCustomerAuth} className="btn-primary btn-sm">
-              <User size={14} /> 登录 / 注册
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <button
+              onClick={onOpenReservation}
+              className="btn-outline btn-sm"
+              style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+            >
+              <Calendar size={14} /> 预订座位
             </button>
-          )
+            {currentCustomer ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <button
+                  onClick={onOpenMyHistory}
+                  className="btn-outline btn-sm"
+                  style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+                >
+                  <ShoppingBag size={14} /> 我的记录
+                </button>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem' }}>
+                  <span className="badge badge-neutral" style={{ padding: '4px 8px' }}>
+                    <User size={13} style={{ marginRight: '4px' }} />
+                    {currentCustomer.name}
+                  </span>
+                  <button
+                    onClick={onCustomerLogout}
+                    title="退出登录"
+                    style={{ color: 'var(--text-muted)', padding: '4px' }}
+                  >
+                    <LogOut size={16} />
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <button onClick={onOpenCustomerAuth} className="btn-primary btn-sm">
+                <User size={14} /> 登录 / 注册
+              </button>
+            )}
+          </div>
         ) : (
           !currentStaff && (
             <button onClick={onOpenStaffAuth} className="btn-primary btn-sm">

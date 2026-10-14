@@ -67,13 +67,18 @@ class OrderRepo:
         branch_id: Optional[int] = None,
         order_status: Optional[str] = None,
         with_items: bool = True,
+        with_items_menu_item: bool = False,
         with_customer: bool = False,
         with_branch: bool = False,
         limit: Optional[int] = None,
     ) -> List[Order]:
         stmt = select(Order)
         options = []
-        if with_items:
+        if with_items_menu_item:
+            options.append(
+                selectinload(Order.items).selectinload(OrderItem.menu_item)
+            )
+        elif with_items:
             options.append(selectinload(Order.items))
         if with_customer:
             options.append(selectinload(Order.customer))

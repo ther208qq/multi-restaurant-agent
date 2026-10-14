@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../../api';
+import { formatWallClockDateTime } from '../../utils/datetime';
 import { X, ShoppingBag, Calendar, RefreshCw, CheckCircle2, Clock, AlertCircle } from 'lucide-react';
 
 export default function MyHistoryModal({ isOpen, onClose }) {
@@ -163,7 +164,7 @@ export default function MyHistoryModal({ isOpen, onClose }) {
                     {o.items && o.items.map((item, idx) => (
                       <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0' }}>
                         <span>
-                          {item.quantity}× 菜品 #{item.menu_item_id}
+                          {item.quantity}× {item.menu_item_name || `菜品 #${item.menu_item_id}`}
                           {item.item_notes ? ` (${item.item_notes})` : ''}
                         </span>
                         <span style={{ fontWeight: 500 }}>
@@ -185,7 +186,7 @@ export default function MyHistoryModal({ isOpen, onClose }) {
                     }}
                   >
                     <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>
-                      {new Date(o.created_at).toLocaleString()}
+                      {formatWallClockDateTime(o.created_at)}
                     </span>
                     <span style={{ fontWeight: 700, color: 'var(--primary)', fontSize: '0.95rem' }}>
                       合计：${Number(o.total_amount).toFixed(2)}
@@ -251,7 +252,7 @@ export default function MyHistoryModal({ isOpen, onClose }) {
                     }}
                   >
                     <span>
-                      📅 {new Date(r.start_time).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}
+                      📅 {formatWallClockDateTime(r.start_time)}
                     </span>
                     {r.status === 'pending' && (
                       <span style={{ color: '#b45309', display: 'flex', alignItems: 'center', gap: '4px', fontWeight: 600 }}>

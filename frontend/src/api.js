@@ -132,6 +132,44 @@ export const api = {
   getMyOrders: () => request('/orders/me', { method: 'GET' }, 'customer'),
   getMyReservations: () => request('/reservations/me', { method: 'GET' }, 'customer'),
 
+  // Customer self-service ordering & booking
+  previewOrder: (payload) =>
+    request(
+      '/orders/preview',
+      {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      },
+      'customer'
+    ),
+
+  createOrder: (payload) =>
+    request(
+      '/orders',
+      {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      },
+      'customer'
+    ),
+
+  getReservationAvailability: (params) => {
+    const qs = new URLSearchParams(
+      Object.entries(params).filter(([, v]) => v !== null && v !== undefined && v !== '')
+    ).toString();
+    return request(`/reservations/availability?${qs}`, { method: 'GET' }, 'customer');
+  },
+
+  createReservation: (payload) =>
+    request(
+      '/reservations',
+      {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      },
+      'customer'
+    ),
+
   // Staff Auth
   staffLogin: async (username, password) => {
     const res = await request('/staff/login', {

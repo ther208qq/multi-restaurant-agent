@@ -10,7 +10,7 @@ A full-stack, multi-branch restaurant platform with a conversational AI agent fo
 
 ## 🎯 What this is
 
-Customers chat with an AI agent to browse the menu, place orders, and book tables — no forms, no menus to click through. Staff manage everything (orders, reservations, stock, branches) from a separate admin dashboard. The system runs across multiple restaurant branches, each with its own menu, inventory, and tables.
+Customers order and book tables two ways: chat with an AI agent in natural language, or use the click-through UI — a sidebar cart with a checkout form, and a table-booking form. Both paths run through the same service layer, so an order placed by clicking obeys the same pricing, stock and booking rules as one placed by chatting. Staff manage everything (orders, reservations, stock, branches) from a separate admin dashboard. The system runs across multiple restaurant branches, each with its own menu, inventory, and tables.
 
 The interesting engineering problem this project solves isn't "wire an LLM to a chat box" — it's making an LLM-driven agent safely perform actions that touch real, shared, concurrently-accessed state (inventory, table bookings) without overselling stock or double-booking a table, while running on a small local model that isn't as reliable as a hosted frontier model.
 
@@ -26,6 +26,8 @@ The interesting engineering problem this project solves isn't "wire an LLM to a 
 
 **👤 Customer side**
 - 💬 Conversational ordering and table booking via natural language
+- 🛒 Self-service ordering without the agent: click-to-add cart with variant selection, a live cost preview, and a checkout form (dine-in / takeaway / delivery)
+- 📅 Self-service table booking form with live per-slot availability and automatic table assignment
 - 📜 Live menu browsing with real-time per-branch stock and sold-out states
 - ✅ Table reservations with a staff-confirmed lifecycle (`pending → confirmed → seated → completed`) and a real double-booking guard
 - 🔐 Account system (JWT-based) with order/reservation history
@@ -103,6 +105,7 @@ Documented deliberately rather than discovered by a reader — this is a portfol
 - No payment processing — orders are marked `placed` and handled manually by staff, by design.
 - Duplicate-request suppression is a five-minute window scoped to still-open requests, not a general idempotency-key system: a genuinely intentional repeat of the identical order a few minutes later goes through, and a *different* request in the same window always does.
 - Statistics are aggregated per UTC day (the database stores `timestamptz`); a branch in another timezone would need a per-branch offset to have its "day" line up with the local one.
+- Reservation and order times are stored and shown as the wall clock the guest typed (`19:00` stays `19:00` in every surface, no timezone conversion), which keeps the UI consistent with the chat replies but is not timezone-aware.
 - A small local model (`deepseek-r1:8b`/`1.5b`) is meaningfully less reliable at tool-calling than a hosted frontier model; the agent includes defensive parsing around this for exactly that reason.
 
 ## 📁 Project layout
@@ -118,6 +121,6 @@ backend/app/
 └── seed.py         # 🌱 Demo data seeding
 
 frontend/src/
-├── components/customer/   # 👤 Chat widget, menu explorer, branch selector, auth
+├── components/customer/   # 👤 Chat widget, menu explorer + cart, checkout & booking forms, auth, history
 └── components/admin/      # 👔 Staff dashboard (orders, reservations, menu, branches)
 ```

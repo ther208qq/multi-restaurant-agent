@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../../api';
+import { formatWallClockDate, formatWallClockTime } from '../../utils/datetime';
 import { Calendar, RefreshCw, CheckCircle2, UserCheck, XCircle, Edit3, AlertCircle, X } from 'lucide-react';
 
 export default function ReservationsManager({ currentStaff, branches }) {
@@ -210,9 +211,9 @@ export default function ReservationsManager({ currentStaff, branches }) {
                   </td>
                   <td>{r.party_size} 人</td>
                   <td>
-                    <div>{new Date(r.start_time).toLocaleDateString()}</div>
+                    <div>{formatWallClockDate(r.start_time)}</div>
                     <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                      {new Date(r.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} （{r.duration_minutes} 分钟）
+                      {formatWallClockTime(r.start_time)} （{r.duration_minutes} 分钟）
                     </div>
                   </td>
                   <td>

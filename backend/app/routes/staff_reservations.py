@@ -8,44 +8,22 @@ domain exceptions raised there are mapped to HTTP status codes by the global
 exception handler.
 """
 
-from datetime import datetime, timezone
 from typing import List, Optional
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.auth.security import get_current_staff
 from backend.app.database import get_db
-from backend.app.exceptions import ValidationError
-from backend.app.models.reservation import Reservation
 from backend.app.models.user import StaffUser
 from backend.app.schemas.reservation import (
     ReservationAvailabilityItem,
     ReservationResponse,
     ReservationUpdate,
+    parse_slot,
 )
 from backend.app.service.reservation import ReservationService
 
 router = APIRouter(prefix="/staff/reservations", tags=["Staff Reservations Management"])
-
-
-def _format_reservation_response(r: Reservation) -> ReservationResponse:
-    return ReservationResponse(
-        id=r.id,
-        customer_id=r.customer_id,
-        branch_id=r.branch_id,
-        table_id=r.table_id,
-        party_size=r.party_size,
-        start_time=r.start_time,
-        end_time=r.end_time,
-        duration_minutes=r.duration_minutes,
-        seating_area_preference=r.seating_area_preference,
-        status=r.status,
-        notes=r.notes,
-        created_at=r.created_at,
-        table_label=r.table.label if r.table else None,
-        branch_name=r.branch.name if r.branch else None,
-        customer_name=r.customer.name if r.customer else None,
-    )
 
 
 @router.get("", response_model=List[ReservationResponse])
@@ -64,16 +42,7 @@ async def list_staff_reservations(
         date=date_filter,
         session=db,
     )
-    return [_format_reservation_response(r) for r in reservations]
-
-
-def _format_availability_item(table) -> ReservationAvailabilityItem:
-    return ReservationAvailabilityItem(
-        table_id=table.id,
-        label=table.label,
-        seating_area=table.seating_area,
-        capacity=table.capacity,
-    )
+    return [ReservationResponse.from_reservation(r) for r in reservations]
 
 
 @router.get("/availability", response_model=List[ReservationAvailabilityItem])
@@ -88,12 +57,7 @@ async def list_table_availability(
     db: AsyncSession = Depends(get_db),
 ):
     """List the tables bookable at a given slot (read-only availability query)."""
-    try:
-        start_time = datetime.strptime(f'{date} {time}', '%Y-%m-%d %H:%M').replace(
-            tzinfo=timezone.utc
-        )
-    except ValueError:
-        raise ValidationError('日期或时间格式不正确，日期为 YYYY-MM-DD，时间为 HH:MM。')
+    start_time = parse_slot(date, time)
 
     tables = await ReservationService.list_available_tables(
         branch_id=branch_id,
@@ -104,7 +68,7 @@ async def list_table_availability(
         staff=current_staff,
         session=db,
     )
-    return [_format_availability_item(t) for t in tables]
+    return [ReservationAvailabilityItem.from_table(t) for t in tables]
 
 
 @router.patch("/{res_id}", response_model=ReservationResponse)
@@ -137,4 +101,4 @@ async def update_reservation(
         staff=current_staff,
         session=db,
     )
-    return _format_reservation_response(reservation)
+    return ReservationResponse.from_reservation(reservation)

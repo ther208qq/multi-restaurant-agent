@@ -33,13 +33,17 @@ from backend.app.schemas.order import (
     OrderCreate,
     OrderItemCreate,
     OrderItemResponse,
+    OrderPreviewLine,
+    OrderPreviewResponse,
     OrderResponse,
     OrderStatusUpdate,
 )
 from backend.app.schemas.reservation import (
+    ReservationAvailabilityItem,
     ReservationCreate,
     ReservationResponse,
     ReservationUpdate,
+    parse_slot,
 )
 from backend.app.schemas.stats import (
     BranchStatsResponse,
@@ -75,11 +79,15 @@ __all__ = [
     "OrderCreate",
     "OrderItemCreate",
     "OrderItemResponse",
+    "OrderPreviewLine",
+    "OrderPreviewResponse",
     "OrderResponse",
     "OrderStatusUpdate",
+    "ReservationAvailabilityItem",
     "ReservationCreate",
     "ReservationResponse",
     "ReservationUpdate",
+    "parse_slot",
     "BranchStatsResponse",
     "StatsDailyPoint",
     "StatsDishSales",
