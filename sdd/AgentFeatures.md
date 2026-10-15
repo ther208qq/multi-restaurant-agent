@@ -1,7 +1,9 @@
 # Agent 嵌入业务流：三个功能的实施方案（待实现）
 
 > 建档：2026-10-14。本文是「去除顾客聊天入口后，把 `agent/` 模块嵌入具体业务端点」的实施方案，
-> 供后续按 **2 → 1 → 3** 顺序实现。当前**尚未开工**。
+> 供后续按 **2 → 1 → 3** 顺序实现。
+>
+> **当前状态（2026-10-15）：功能2 已完成（commit `ddcd0cf`，见 §0.1）；功能1、功能3 尚未开工。**
 
 ## 0. 已定决策（记录，不再反复确认）
 
@@ -12,6 +14,25 @@
 | KDS | **模拟层**（订单上加字段 + 工具读写），不接真实 KDS |
 | 落地方式 | 业务端点内嵌 Agent（不是恢复顾客聊天） |
 | 实现顺序 | **功能2 → 功能1 → 功能3** |
+
+### 0.1 实现状态
+
+| 功能 | 状态 | 备注 |
+|---|---|---|
+| **功能2 预订逼单** | ✅ 已完成（2026-10-15，commit `ddcd0cf`） | 详见 `sdd/OpenItems.md` §十三 |
+| 功能1 KDS 订单请求/挂起 | ⏸ 未开工 | 用户 2026-10-15 明确"之后再做" |
+| 功能3 HITL 审批 | ⏸ 未开工 | — |
+
+**功能2 落地时被动确认的三点（2026-10-15，用户裁定"暂时这样"）**：
+
+1. **API 可调用 Agent**：`Spec.md` §6 写「API 只调用 Service……不调用 Agent」，与本节 §1「Agent 只在具体接口内被调用」冲突；
+   按**较新的本文**处理——`routes/customer_orders.py` 直接 import `agent.offers`。现有边界扫描
+   （`tests/test_architecture_boundaries.py`）只禁 `routes → agent.tools`，故该写法通过。
+2. **话术不过 LLM**：功能2 的 offer 话术由 `agent/offers.py::compose_offer_message` 本地确定性拼装，
+   未调 `llm_client`（该接口在预订弹窗里随每次改字段触发，走 LLM 会有 45s 超时与不可测输出）。
+   `llm_client` 的 seam 留给功能1/3 的意图识别。
+3. **`GET /reservations/availability` 响应改为对象** `{tables, agent_offer}`（原为裸数组；数组无法带字段）。
+   前端与既有用例已同步；员工侧 `/staff/reservations/availability` 未动。
 
 ## 1. 总体思路
 
