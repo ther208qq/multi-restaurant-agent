@@ -140,5 +140,23 @@ class OrderRepo:
         await session.flush()
         return order
 
+    @staticmethod
+    async def update_kds_status(
+        session: AsyncSession,
+        order: Order,
+        new_status: str,
+        held_reason: Optional[str] = None,
+    ) -> Order:
+        """Move the simulated KDS state and record why a task is held.
+
+        The Service has already validated the transition; this only writes the
+        two fields, clearing ``kds_held_reason`` whenever the task is not held so
+        a stale reason never lingers on a live order.
+        """
+        order.kds_status = new_status
+        order.kds_held_reason = held_reason if new_status == "held" else None
+        await session.flush()
+        return order
+
 
 __all__ = ["OrderRepo"]

@@ -171,6 +171,19 @@ export const api = {
       'customer'
     ),
 
+  // Contact the kitchen about one of my orders (AgentFeatures feature 1). The
+  // message is classified server-side (hold / resume / status) and the agent
+  // replies; the endpoint returns { reply }.
+  requestOrderKds: (orderId, message) =>
+    request(
+      `/agent/order/${orderId}/request`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ message }),
+      },
+      'customer'
+    ),
+
   // Staff Auth
   staffLogin: async (username, password) => {
     const res = await request('/staff/login', {

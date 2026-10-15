@@ -20,6 +20,7 @@ from backend.app.error_handlers import register_exception_handlers
 from backend.app.routes import (
     auth_router,
     branches_router,
+    customer_agent_router,
     customer_orders_router,
     staff_audit_router,
     staff_auth_router,
@@ -87,6 +88,7 @@ app.include_router(auth_router, prefix="/api")
 app.include_router(staff_auth_router, prefix="/api")
 app.include_router(branches_router, prefix="/api")
 app.include_router(customer_orders_router, prefix="/api")
+app.include_router(customer_agent_router, prefix="/api")
 app.include_router(staff_audit_router, prefix="/api")
 app.include_router(staff_branches_router, prefix="/api")
 app.include_router(staff_menu_router, prefix="/api")

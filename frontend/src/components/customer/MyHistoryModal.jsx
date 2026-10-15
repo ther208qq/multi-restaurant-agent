@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { api } from '../../api';
 import { formatWallClockDateTime } from '../../utils/datetime';
 import { X, ShoppingBag, Calendar, RefreshCw, CheckCircle2, Clock, AlertCircle } from 'lucide-react';
+import KdsRequestPanel from './KdsRequestPanel';
 
 export default function MyHistoryModal({ isOpen, onClose }) {
   const [tab, setTab] = useState('orders'); // 'orders' | 'reservations'
@@ -192,6 +193,12 @@ export default function MyHistoryModal({ isOpen, onClose }) {
                       合计：${Number(o.total_amount).toFixed(2)}
                     </span>
                   </div>
+                  <KdsRequestPanel
+                    orderId={o.id}
+                    kdsStatus={o.kds_status}
+                    kdsHeldReason={o.kds_held_reason}
+                    onSent={fetchData}
+                  />
                 </div>
               ))
             )

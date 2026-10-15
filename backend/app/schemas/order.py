@@ -64,6 +64,18 @@ class OrderStatusUpdate(BaseModel):
     status: str  # placed, confirmed, preparing, ready, delivered, cancelled
 
 
+class OrderKdsRequest(BaseModel):
+    """A customer's free-text message to the kitchen for one of their orders."""
+
+    message: str
+
+
+class AgentKdsResponse(BaseModel):
+    """The agent's spoken reply to a "contact the kitchen" request (§3)."""
+
+    reply: str
+
+
 class OrderPreviewLine(BaseModel):
     """One priced line of an order preview (see ``OrderService.preview_order``)."""
 
@@ -106,6 +118,9 @@ class OrderResponse(BaseModel):
     delivery_address: Optional[str] = None
     special_notes: Optional[str] = None
     total_amount: float
+    # Simulated KDS state (AgentFeatures §3): "queued", "cooking", "held", "done".
+    kds_status: str = "queued"
+    kds_held_reason: Optional[str] = None
     created_at: datetime
     updated_at: datetime
     items: List[OrderItemResponse] = []
@@ -136,6 +151,8 @@ class OrderResponse(BaseModel):
             delivery_address=order.delivery_address,
             special_notes=order.special_notes,
             total_amount=order.total_amount,
+            kds_status=order.kds_status,
+            kds_held_reason=order.kds_held_reason,
             created_at=order.created_at,
             updated_at=order.updated_at,
             items=[OrderItemResponse.from_item(item) for item in order.items],

@@ -21,6 +21,14 @@ ORDER_STATUS_LABELS = {
     "cancelled": "❌ 已取消",
 }
 
+# Simulated Kitchen Display System states (AgentFeatures §3).
+KDS_STATUS_LABELS = {
+    "queued": "🕐 待制作",
+    "cooking": "🍳 制作中",
+    "held": "⏸ 已挂起",
+    "done": "✅ 已出餐",
+}
+
 RESERVATION_STATUS_LABELS = {
     "confirmed": "✅ 已确认",
     "pending": "⏳ 待确认",
@@ -39,6 +47,7 @@ SEATING_AREA_LABELS = {
 AUDIT_ACTION_LABELS = {
     "order.created": "下单",
     "order.status_changed": "订单状态变更",
+    "order.kds_changed": "后厨任务状态变更",
     "reservation.created": "新建预订",
     "reservation.status_changed": "预订状态变更",
     "reservation.rescheduled": "预改约",

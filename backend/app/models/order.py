@@ -15,6 +15,12 @@ from sqlalchemy.orm import relationship
 
 from backend.app.database import Base
 
+# Simulated Kitchen Display System (KDS) states (AgentFeatures §3). The KDS is
+# not a real integration -- the state lives on the order and is read/written by
+# the agent's ``contact-the-kitchen`` tools. ``held`` means the customer asked
+# the kitchen to pause the order; ``kds_held_reason`` records why.
+KDS_STATUSES = ("queued", "cooking", "held", "done")
+
 
 class Order(Base):
     __tablename__ = "orders"
@@ -27,6 +33,9 @@ class Order(Base):
     delivery_address = Column(String(255), nullable=True)
     special_notes = Column(Text, nullable=True)
     total_amount = Column(Float, nullable=False, default=0.0)
+    # Simulated KDS (AgentFeatures §3): "queued", "cooking", "held", "done".
+    kds_status = Column(String(20), nullable=False, default="queued")
+    kds_held_reason = Column(String(255), nullable=True)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)

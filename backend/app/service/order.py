@@ -32,7 +32,7 @@ from backend.app.exceptions import (
     NotFoundError,
     ValidationError,
 )
-from backend.app.labels import ORDER_STATUS_LABELS
+from backend.app.labels import KDS_STATUS_LABELS, ORDER_STATUS_LABELS
 from backend.app.models.order import Order
 from backend.app.models.user import StaffUser
 from backend.app.repo.locks import lock_key, lock_request
@@ -75,10 +75,37 @@ ORDER_TRANSITIONS: Dict[str, FrozenSet[str]] = {
     "cancelled": frozenset({"placed"}),
 }
 
+# Legal moves of the *simulated* Kitchen Display System state (AgentFeatures §3).
+# The kitchen advances a task ``queued -> cooking -> done``; a customer "hold"
+# parks it in ``held`` from either the queue or mid-cooking, and "resume" sends
+# it back to the queue. ``done`` is terminal. This is a simulation -- the tools
+# are the only writers -- so the matrix is deliberately small.
+KDS_TRANSITIONS: Dict[str, FrozenSet[str]] = {
+    "queued": frozenset({"cooking", "held"}),
+    "cooking": frozenset({"held", "done"}),
+    "held": frozenset({"queued"}),
+    "done": frozenset(),
+}
+
+# Order statuses whose kitchen task can still be touched. Once an order is
+# cancelled or delivered there is nothing left in the kitchen to hold or resume.
+KDS_ACTIONABLE_ORDER_STATUSES = tuple(
+    status for status in VALID_ORDER_STATUSES if status not in ("cancelled", "delivered")
+)
+
+# ``kds_held_reason`` is a 255-char column; the customer's message is trimmed to
+# fit rather than rejected, since a long reason is not a user error.
+KDS_HELD_REASON_MAX_LENGTH = 255
+
 
 def _status_label(status: str) -> str:
     """Chinese label for a status, falling back to the raw code."""
     return ORDER_STATUS_LABELS.get(status, status)
+
+
+def _kds_status_label(status: str) -> str:
+    """Chinese label for a KDS state, falling back to the raw code."""
+    return KDS_STATUS_LABELS.get(status, status)
 
 
 def _resolve_variants(
@@ -467,11 +494,129 @@ class OrderService:
             await s.refresh(order)
             return order
 
+    # ------------------------------------------------------------------ #
+    # Simulated KDS: the customer's "contact the kitchen" flow (§3).
+    # ------------------------------------------------------------------ #
+    @staticmethod
+    async def get_customer_order(
+        order_id: int,
+        customer_id: int,
+        *,
+        session: Optional[AsyncSession] = None,
+    ) -> Order:
+        """Fetch an order, proving the caller owns it.
+
+        Raises :class:`NotFoundError` when the order does not exist and
+        :class:`ForbiddenError` when it belongs to another customer. A caller
+        never learns whether someone else's order id exists, but the two cases
+        stay distinct so the API can answer 404 / 403 accordingly.
+        """
+        async with transactional_session(session) as s:
+            order = await OrderRepo.get_order(s, order_id)
+            if order is None:
+                raise NotFoundError(f'订单 #{order_id} 不存在。')
+            if order.customer_id != customer_id:
+                raise ForbiddenError('您只能操作自己的订单。')
+            return order
+
+    @staticmethod
+    def _assert_kds_actionable(order: Order) -> None:
+        """Reject a kitchen action on an order that is already over.
+
+        Shared by hold and resume so both refuse the same two terminal cases:
+        the order's own lifecycle is finished, or the kitchen task has already
+        been served (``done``).
+        """
+        if order.status not in KDS_ACTIONABLE_ORDER_STATUSES:
+            raise ValidationError(
+                f'订单当前状态为「{_status_label(order.status)}」，无法再联系后厨。'
+            )
+        if order.kds_status == "done":
+            raise ValidationError('该订单已出餐，无法再联系后厨。')
+
+    @staticmethod
+    async def hold_kds_task(
+        order_id: int,
+        customer_id: int,
+        reason: Optional[str],
+        *,
+        session: Optional[AsyncSession] = None,
+    ) -> Order:
+        """Park the order's kitchen task (``-> held``) at the customer's request.
+
+        Idempotent: an order already ``held`` is returned unchanged rather than
+        recording a second transition, so a double-click or a resent message
+        moves nothing. Raises :class:`ValidationError` for an illegal move (for
+        example a task already ``done``).
+        """
+        async with transactional_session(session) as s:
+            order = await OrderRepo.get_order(s, order_id)
+            if order is None:
+                raise NotFoundError(f'订单 #{order_id} 不存在。')
+            if order.customer_id != customer_id:
+                raise ForbiddenError('您只能操作自己的订单。')
+            OrderService._assert_kds_actionable(order)
+            if order.kds_status == "held":
+                return order
+            if "held" not in KDS_TRANSITIONS.get(order.kds_status, frozenset()):
+                raise ValidationError(
+                    f'后厨任务当前为「{_kds_status_label(order.kds_status)}」，无法挂起。'
+                )
+            previous = order.kds_status
+            held_reason = (reason or "").strip()[:KDS_HELD_REASON_MAX_LENGTH] or None
+            await OrderRepo.update_kds_status(s, order, "held", held_reason=held_reason)
+            await AuditService.record(
+                s,
+                'order.kds_changed',
+                entity_type='order',
+                entity_id=order.id,
+                branch_id=order.branch_id,
+                actor=await UserRepo.get_customer_by_id(s, customer_id),
+                details={'from': previous, 'to': 'held', 'reason': held_reason},
+            )
+            await s.refresh(order)
+            return order
+
+    @staticmethod
+    async def resume_kds_task(
+        order_id: int,
+        customer_id: int,
+        *,
+        session: Optional[AsyncSession] = None,
+    ) -> Order:
+        """Send a held kitchen task back to the queue (``held -> queued``).
+
+        Raises :class:`ValidationError` when the task was not held -- there is
+        nothing to resume.
+        """
+        async with transactional_session(session) as s:
+            order = await OrderRepo.get_order(s, order_id)
+            if order is None:
+                raise NotFoundError(f'订单 #{order_id} 不存在。')
+            if order.customer_id != customer_id:
+                raise ForbiddenError('您只能操作自己的订单。')
+            OrderService._assert_kds_actionable(order)
+            if order.kds_status != "held":
+                raise ValidationError('后厨任务并未挂起，无需恢复上菜。')
+            await OrderRepo.update_kds_status(s, order, "queued")
+            await AuditService.record(
+                s,
+                'order.kds_changed',
+                entity_type='order',
+                entity_id=order.id,
+                branch_id=order.branch_id,
+                actor=await UserRepo.get_customer_by_id(s, customer_id),
+                details={'from': 'held', 'to': 'queued'},
+            )
+            await s.refresh(order)
+            return order
+
 
 __all__ = [
     "OrderService",
     "VALID_ORDER_STATUSES",
     "ORDER_TRANSITIONS",
+    "KDS_TRANSITIONS",
     "OPEN_ORDER_STATUSES",
     "DEDUPLICATE_WINDOW_MINUTES",
 ]

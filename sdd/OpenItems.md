@@ -360,3 +360,46 @@ Task19「经营统计与异常处理」已实现：按门店和日期统计订�
 
 **遗留**：券的 `redeemed` 流转尚无 B 端接口（§6 未列）；赠品只在接受逼单时发放，无"候补/等位"能力；`alternative_times`
 仅在**同一 UTC 日**内扫描（沿用既有 `_suggest_times`）。
+
+---
+
+## 十四、Agent 嵌入业务流 · 功能1「KDS 订单请求/挂起」（2026-10-15 完成）
+
+按 `sdd/AgentFeatures.md` §3 实现（实现顺序 2 → 1 → 3 的第 2 步）。全量 **453 passed**
+（+24 新用例，另 `test_cleanup_residual.py` 仍因引用已删除的 `routes/chat` 无法收集——**与本次无关，872b1e6 遗留**），
+`npm run build` 通过。
+
+**数据模型**：`orders` 新增两列——`kds_status`（`queued|cooking|held|done`，默认 `queued`）与
+`kds_held_reason`（`String(255)`，可空）。KDS 是**模拟层**：状态挂在订单上，只有 Agent 工具读写，不接真实 KDS。
+
+> ⚠️ **开发库需手工迁移**：本项目无 Alembic，`init_db()` 的 `create_all` 只建新表、**不会 ALTER 既有表**，
+> 故 `gifts` 那种新表能自动建，但本次给 `orders` 加列必须手工执行（或重建库）：
+> ```sql
+> ALTER TABLE orders ADD COLUMN IF NOT EXISTS kds_status VARCHAR(20) NOT NULL DEFAULT 'queued';
+> ALTER TABLE orders ADD COLUMN IF NOT EXISTS kds_held_reason VARCHAR(255);
+> ```
+> 测试库每次会话 drop+重建，无需处理。
+
+**接口**：新增 `POST /api/agent/order/{order_id}/request`（顾客鉴权，body `{message}` → `{reply}`），
+落在新文件 `routes/customer_agent.py`（挂 `/api`）。**存在性/归属是 HTTP 关注点**：路由先经
+`OrderService.get_customer_order(order_id, customer_id)` 校验（不存在→404、非本人→403）、空 message→400，
+之后才调 Agent。业务态结果（如"未挂起无需恢复"）一律以 `{reply}` 的 200 返回，不当 HTTP 错误。
+
+**Agent 子流**：`agent/kds.py::handle_kds_request` —— 先 `classify_kds_intent`（**规则优先**：`先别/推迟/…`→hold、
+`可以上/上菜吧/…`→resume、`好了吗/多久/…`→status；规则无把握才问 `llm_client`，LLM 又无法解析则默认 **status 只读**——
+挂起会真的停后厨，故只在有把握的信号上动作，存取只读降级安全、离线可用）→ 驱动薄工具
+`agent/tools/kds_tools.py`（`query_kds_status` / `suspend_kds_task` / `resume_kds_task`，把 `DomainError` 转成
+`{success,error,code}` 字典）→ `OrderService`。
+
+**状态流转**（`service/order.py::KDS_TRANSITIONS`）：`queued→{cooking,held}`、`cooking→{held,done}`、
+`held→{queued}`、`done→{}`（终态）。`hold_kds_task` **幂等**（已 held 直接返回，重复点击/重发不产生第二次流转）；
+`_assert_kds_actionable` 拒绝已取消/已送达/已出餐的订单。`kds_held_reason` 取顾客原话、超 255 截断。
+`_apply_status_stock_effects` 之外，**不动库存**（KDS 与订单生命周期正交）。
+
+**审计**：新增 `order.kds_changed` 动作（`labels.py` + `AUDIT_ACTION_LABELS`），记录 `{from,to,reason}` 与顾客 actor。
+
+**前端**：新组件 `KdsRequestPanel.jsx`（自含开合/草稿态），在「我的记录」订单卡片内渲染「联系后厨」按钮 →
+文本框 → `POST` → 显示回复，并展示 `held` 徽标（含暂缓原因）；发送后 `onSent` 刷新列表使 KDS 状态同步。
+
+**遗留**：KDS 只由顾客侧工具驱动，**员工侧无 KDS 操作界面**（`cooking`/`done` 目前不会被推进——属模拟层口径，
+`AgentFeatures.md` 已定「不接真实 KDS」）；`GET /orders/me` 已带 `kds_status`，员工订单页（`OrdersManager`）暂未展示。
