@@ -159,6 +159,18 @@ export const api = {
       'customer'
     ),
 
+  // Accept the booking agent's counter-offer (a nearby time plus a gift) when
+  // the requested slot is full.
+  acceptReservationOffer: (payload) =>
+    request(
+      '/reservations/accept-offer',
+      {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      },
+      'customer'
+    ),
+
   // Staff Auth
   staffLogin: async (username, password) => {
     const res = await request('/staff/login', {

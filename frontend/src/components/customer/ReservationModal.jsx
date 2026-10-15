@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../../api';
 import { formatWallClockDateTime } from '../../utils/datetime';
-import { X, AlertCircle, Clock, CheckCircle2 } from 'lucide-react';
+import { X, AlertCircle, Clock, CheckCircle2, Gift, Sparkles } from 'lucide-react';
 
 const AREAS = [
 { value: 'any', label: '不限' },
@@ -30,10 +30,13 @@ const [partySize, setPartySize] = useState(2);
 const [area, setArea] = useState('any');
 const [notes, setNotes] = useState('');
 const [slots, setSlots] = useState(null);
+const [offer, setOffer] = useState(null);
+const [offerTime, setOfferTime] = useState('');
 const [availError, setAvailError] = useState('');
 const [checking, setChecking] = useState(false);
 const [error, setError] = useState('');
 const [booking, setBooking] = useState(false);
+const [accepting, setAccepting] = useState(false);
 const [booked, setBooked] = useState(null);
 
 useEffect(() => {
@@ -44,6 +47,8 @@ setPartySize(2);
 setArea('any');
 setNotes('');
 setSlots(null);
+setOffer(null);
+setOfferTime('');
 setAvailError('');
 setError('');
 setBooked(null);
@@ -56,15 +61,23 @@ let cancelled = false;
 setChecking(true);
 api
 .getReservationAvailability({ branch_id: branch.id, date: date, time: time, party_size: partySize, seating_area: area })
-.then((res) => { if (!cancelled) { setSlots(res); setAvailError(''); } })
-.catch((err) => { if (!cancelled) { setSlots(null); setAvailError(err.message || ''); } })
+.then((res) => {
+if (cancelled) return;
+const tables = (res && res.tables) || [];
+const nextOffer = (res && res.agent_offer) || null;
+setSlots(tables);
+setOffer(nextOffer);
+setOfferTime(nextOffer && nextOffer.alternative_times && nextOffer.alternative_times[0] ? nextOffer.alternative_times[0] : '');
+setAvailError('');
+})
+.catch((err) => { if (!cancelled) { setSlots(null); setOffer(null); setAvailError(err.message || ''); } })
 .finally(() => { if (!cancelled) setChecking(false); });
 return () => { cancelled = true; };
 }, [isOpen, branch, date, time, partySize, area]);
 
 if (!isOpen) return null;
 
-const handleClose = () => { if (booking) return; onClose(); };
+const handleClose = () => { if (booking || accepting) return; onClose(); };
 
 const handleSubmit = async () => {
 setError('');
@@ -87,6 +100,28 @@ setBooking(false);
 }
 };
 
+const handleAcceptOffer = async () => {
+if (!offer) return;
+setError('');
+setAccepting(true);
+try {
+const res = await api.acceptReservationOffer({
+branch_id: branch.id,
+party_size: partySize,
+requested_date: date,
+requested_time: offerTime || offer.alternative_times[0],
+seating_area_preference: area,
+gift_item_id: offer.gift_item ? offer.gift_item.item_id : null,
+notes: notes.trim() || null,
+});
+setBooked({ ...res.reservation, gift: res.gift });
+} catch (err) {
+setError(err.message || '接受安排失败，请重试。');
+} finally {
+setAccepting(false);
+}
+};
+
 return (
 <div className='modal-overlay' onClick={handleClose}>
 <div className='modal-content' style={{ maxWidth: '480px' }} onClick={(e) => e.stopPropagation()}>
@@ -104,6 +139,12 @@ return (
 <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', marginTop: '4px' }}>
 {booked.table_label ? '已为您安排 ' + booked.table_label + ' 号桌 · ' : ''}{booked.party_size} 人 · {formatWallClockDateTime(booked.start_time)}
 </p>
+{booked.gift && (
+<p style={{ display: 'flex', alignItems: 'center', gap: '6px', justifyContent: 'center', color: '#15803d', fontSize: '0.85rem', marginTop: '6px' }}>
+<Gift size={15} />
+已附赠「{booked.gift.item_name}」，到店请出示
+</p>
+)}
 </div>
 <div style={{ display: 'flex', gap: '8px', marginTop: '0.5rem' }}>
 <button className='btn-outline' onClick={() => { onBooked(); onViewHistory(); }}>查看我的记录</button>
@@ -142,8 +183,44 @@ return (
 </div>
 <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem', color: availError ? '#b91c1c' : checking ? 'var(--text-muted)' : (slots && slots.length > 0 ? '#15803d' : '#b45309') }}>
 <Clock size={15} />
-{checking ? '正在查询可用餐桌…' : availError ? availError : slots && slots.length > 0 ? '该时段还有 ' + slots.length + ' 张桌可用' : '该时段暂无可预订的餐桌，请换个时间或区域'}
+{checking ? '正在查询可用餐桌…' : availError ? availError : slots && slots.length > 0 ? '该时段还有 ' + slots.length + ' 张桌可用' : offer ? '该时段已订满，为您推荐以下安排' : '该时段暂无可预订的餐桌，请换个时间或区域'}
 </div>
+{offer && (
+<div style={{ border: '1px solid #fde68a', background: '#fffbeb', borderRadius: '10px', padding: '12px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+<div style={{ display: 'flex', gap: '8px', alignItems: 'flex-start' }}>
+<Sparkles size={18} style={{ color: '#b45309', flexShrink: 0, marginTop: '2px' }} />
+<p style={{ fontSize: '0.9rem', color: '#92400e', lineHeight: 1.5 }}>{offer.message}</p>
+</div>
+{offer.alternative_times && offer.alternative_times.length > 0 && (
+<div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+{offer.alternative_times.map((t) => (
+<button
+key={t}
+type='button'
+onClick={() => setOfferTime(t)}
+style={{
+padding: '6px 12px', borderRadius: '999px', fontSize: '0.85rem', fontWeight: 600,
+border: offerTime === t ? '1px solid #b45309' : '1px solid var(--surface-border)',
+background: offerTime === t ? '#fef3c7' : 'white',
+color: offerTime === t ? '#92400e' : 'var(--text-muted)',
+}}
+>
+{t}
+</button>
+))}
+</div>
+)}
+{offer.gift_item && (
+<div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem', color: '#15803d' }}>
+<Gift size={15} />
+赠品：{offer.gift_item.name}
+</div>
+)}
+<button className='btn-primary' style={{ justifyContent: 'center', opacity: accepting ? 0.7 : 1 }} disabled={accepting} onClick={handleAcceptOffer}>
+{accepting ? '正在安排…' : '接受此安排'}
+</button>
+</div>
+)}
 <div>
 <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', display: 'block', marginBottom: '6px' }}>备注（选填）</label>
 <textarea rows={2} placeholder='例如：靠窗、生日聚会等' value={notes} onChange={(e) => setNotes(e.target.value)} style={{ width: '100%', padding: '8px 10px', borderRadius: '8px', border: '1px solid var(--surface-border)', outline: 'none', resize: 'vertical', fontSize: '0.85rem' }} />

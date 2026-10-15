@@ -51,6 +51,8 @@ AUDIT_ACTION_LABELS = {
     "branch.updated": "修改门店",
     "table.created": "新建餐桌",
     "table.updated": "修改餐桌",
+    "gift.issued": "发放赠品",
+    "gift.redeemed": "核销赠品",
 }
 
 AUDIT_ENTITY_LABELS = {
@@ -60,6 +62,7 @@ AUDIT_ENTITY_LABELS = {
     "menu_category": "菜品分类",
     "branch": "门店",
     "table": "餐桌",
+    "gift": "赠品",
 }
 
 

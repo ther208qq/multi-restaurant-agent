@@ -1,10 +1,11 @@
 """Reservation Schemas."""
 
 from datetime import datetime, timezone
-from typing import Any, Optional
+from typing import Any, List, Optional
 from pydantic import BaseModel, ConfigDict
 
 from backend.app.exceptions import ValidationError
+from backend.app.schemas.gift import GiftResponse
 
 SLOT_FORMAT_ERROR = '日期或时间格式不正确，日期为 YYYY-MM-DD，时间为 HH:MM。'
 
@@ -75,6 +76,46 @@ class ReservationAvailabilityItem(BaseModel):
         )
 
 
+class AgentOfferGift(BaseModel):
+    """The gift dangled by an upsell offer (one surplus dessert / drink)."""
+
+    item_id: int
+    name: str
+    category: Optional[str] = None
+    stock_quantity: int = 0
+
+
+class AgentOffer(BaseModel):
+    """The agent's counter-proposal when the requested slot is full."""
+
+    message: str
+    alternative_times: List[str] = []
+    gift_item: Optional[AgentOfferGift] = None
+
+
+class ReservationAvailabilityResponse(BaseModel):
+    """Bookable tables for a slot, plus the agent's offer when there are none."""
+
+    tables: List[ReservationAvailabilityItem] = []
+    agent_offer: Optional[AgentOffer] = None
+
+
+class ReservationOfferAccept(BaseModel):
+    """A customer accepting the offer: a nearby time and an optional gift."""
+
+    branch_id: int
+    party_size: int = 2
+    requested_date: str  # YYYY-MM-DD
+    requested_time: str  # HH:MM (24-hour)
+    duration_minutes: int = 90
+    seating_area_preference: Optional[str] = None
+    gift_item_id: Optional[int] = None
+    notes: Optional[str] = None
+
+    def to_start_time(self) -> datetime:
+        return parse_slot(self.requested_date, self.requested_time)
+
+
 class ReservationResponse(BaseModel):
     id: int
     customer_id: int
@@ -127,3 +168,10 @@ class ReservationResponse(BaseModel):
             if customer_name is not None
             else (customer.name if customer else None),
         )
+
+
+class ReservationOfferAcceptResponse(BaseModel):
+    """The booking made from an accepted offer, with the gift it earned."""
+
+    reservation: ReservationResponse
+    gift: Optional[GiftResponse] = None

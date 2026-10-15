@@ -30,7 +30,7 @@ and the Agent turns them into user-facing replies.
 """
 
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, FrozenSet, List, Optional
+from typing import Any, Dict, FrozenSet, List, Optional, Tuple
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -46,14 +46,17 @@ from backend.app.exceptions import (
 )
 from backend.app.labels import RESERVATION_STATUS_LABELS, seating_area_label
 from backend.app.models.branch import Table
+from backend.app.models.gift import Gift
 from backend.app.models.reservation import OCCUPYING_RESERVATION_STATUSES, Reservation
 from backend.app.models.user import StaffUser
 from backend.app.opening_hours import format_clock, parse_opening_hours
 from backend.app.repo.branch import BranchRepo
+from backend.app.repo.gift import GiftRepo
 from backend.app.repo.locks import lock_key, lock_request
 from backend.app.repo.reservation import ReservationRepo
 from backend.app.repo.user import UserRepo
 from backend.app.service.audit import AuditService
+from backend.app.service.gift import issue_gift
 
 # How long a booking that still holds its table keeps absorbing repeat
 # submissions of itself (spec §9 重复请求). The Agent books in one step -- there
@@ -315,78 +318,201 @@ class ReservationService:
         if party_size < 1:
             raise ValidationError("就餐人数至少为 1 位。")
         start_time = _coerce_start_time(start_time)
+
+        async with transactional_session(session) as s:
+            reservation, _ = await ReservationService._book_table_in_session(
+                s,
+                customer_id=customer_id,
+                branch_id=branch_id,
+                start_time=start_time,
+                party_size=party_size,
+                duration_minutes=duration_minutes,
+                seating_area=seating_area,
+                notes=notes,
+                deduplicate=deduplicate,
+            )
+            return reservation
+
+    @staticmethod
+    async def _book_table_in_session(
+        s: AsyncSession,
+        *,
+        customer_id: int,
+        branch_id: int,
+        start_time: datetime,
+        party_size: int,
+        duration_minutes: int,
+        seating_area: Optional[str],
+        notes: Optional[str],
+        deduplicate: bool,
+    ) -> Tuple[Reservation, bool]:
+        """Create one booking inside the caller's open transaction.
+
+        Returns ``(reservation, created)`` -- ``created`` is ``False`` when the
+        call returned a booking that already existed (the deduplicate path), so a
+        caller that also has side effects to apply (issuing a gift) can tell a
+        fresh booking from a repeat submission.
+        """
         end_time = start_time + timedelta(minutes=duration_minutes)
         area_filter = seating_area.lower() if seating_area else 'any'
 
-        async with transactional_session(session) as s:
-            branch = await BranchRepo.get_branch(s, branch_id, active_only=True)
-            if branch is None:
-                raise NotFoundError(f'门店 #{branch_id} 不存在。')
+        branch = await BranchRepo.get_branch(s, branch_id, active_only=True)
+        if branch is None:
+            raise NotFoundError(f'门店 #{branch_id} 不存在。')
 
-            # Spec §11: reject a slot in the past, too far ahead, or outside the
-            # branch's opening hours before touching any table.
-            validate_bookable_slot(start_time, duration_minutes, branch.opening_hours)
+        # Spec §11: reject a slot in the past, too far ahead, or outside the
+        # branch's opening hours before touching any table.
+        validate_bookable_slot(start_time, duration_minutes, branch.opening_hours)
 
-            if deduplicate:
-                existing = await ReservationService._find_duplicate_booking(
-                    s,
-                    customer_id=customer_id,
-                    branch_id=branch_id,
-                    start_time=start_time,
-                    party_size=party_size,
-                    duration_minutes=duration_minutes,
-                )
-                if existing is not None:
-                    # The same request, already booked: hand back the original
-                    # booking rather than hold a second table for it.
-                    existing.branch = branch
-                    return existing
-
-            chosen_table = await ReservationService._pick_free_table(
-                s, branch_id, party_size, area_filter, start_time, end_time
-            )
-            if chosen_table is None:
-                raise TableUnavailableError(
-                    await ReservationService._unavailable_message(s, branch_id, party_size, area_filter, start_time, end_time)
-                )
-
-            try:
-                reservation = await ReservationRepo.create_reservation(
-                    s,
-                    customer_id=customer_id,
-                    branch_id=branch_id,
-                    table_id=chosen_table.id,
-                    party_size=party_size,
-                    start_time=start_time,
-                    end_time=end_time,
-                    duration_minutes=duration_minutes,
-                    seating_area_preference=chosen_table.seating_area,
-                    status='pending',
-                    notes=notes,
-                )
-            except IntegrityError:
-                await s.rollback()
-                raise ReservationRaceError(RACE_CONFLICT_MESSAGE)
-            reservation.branch = branch
-            reservation.table = chosen_table
-            # Audit trail (spec §9): the booking holds its table from the moment
-            # it is created -- attribute it to the customer who booked it.
-            await AuditService.record(
+        if deduplicate:
+            existing = await ReservationService._find_duplicate_booking(
                 s,
-                'reservation.created',
-                entity_type='reservation',
-                entity_id=reservation.id,
+                customer_id=customer_id,
                 branch_id=branch_id,
-                actor=await UserRepo.get_customer_by_id(s, customer_id),
-                details={
-                    'status': reservation.status,
-                    'party_size': party_size,
-                    'duration_minutes': duration_minutes,
-                    'table_id': chosen_table.id,
-                    'start_time': start_time.isoformat(),
-                },
+                start_time=start_time,
+                party_size=party_size,
+                duration_minutes=duration_minutes,
             )
-            return reservation
+            if existing is not None:
+                # The same request, already booked: hand back the original
+                # booking rather than hold a second table for it.
+                existing.branch = branch
+                return existing, False
+
+        chosen_table = await ReservationService._pick_free_table(
+            s, branch_id, party_size, area_filter, start_time, end_time
+        )
+        if chosen_table is None:
+            raise TableUnavailableError(
+                await ReservationService._unavailable_message(s, branch_id, party_size, area_filter, start_time, end_time)
+            )
+
+        try:
+            reservation = await ReservationRepo.create_reservation(
+                s,
+                customer_id=customer_id,
+                branch_id=branch_id,
+                table_id=chosen_table.id,
+                party_size=party_size,
+                start_time=start_time,
+                end_time=end_time,
+                duration_minutes=duration_minutes,
+                seating_area_preference=chosen_table.seating_area,
+                status='pending',
+                notes=notes,
+            )
+        except IntegrityError:
+            await s.rollback()
+            raise ReservationRaceError(RACE_CONFLICT_MESSAGE)
+        reservation.branch = branch
+        reservation.table = chosen_table
+        # Audit trail (spec §9): the booking holds its table from the moment
+        # it is created -- attribute it to the customer who booked it.
+        await AuditService.record(
+            s,
+            'reservation.created',
+            entity_type='reservation',
+            entity_id=reservation.id,
+            branch_id=branch_id,
+            actor=await UserRepo.get_customer_by_id(s, customer_id),
+            details={
+                'status': reservation.status,
+                'party_size': party_size,
+                'duration_minutes': duration_minutes,
+                'table_id': chosen_table.id,
+                'start_time': start_time.isoformat(),
+            },
+        )
+        return reservation, True
+
+    @staticmethod
+    async def suggest_alternative_times(
+        branch_id: int,
+        start_time: datetime,
+        party_size: int,
+        duration_minutes: int = 90,
+        seating_area: Optional[str] = None,
+        *,
+        session: Optional[AsyncSession] = None,
+    ) -> List[str]:
+        """Nearby ``HH:MM`` slots that still have a free table (spec §11).
+
+        The read-only counterpart of :meth:`_suggest_times` for callers outside
+        the service -- the Agent's upsell offer builds its counter-proposal from
+        exactly the times this returns. Empty when nothing nearby is free (or
+        when the branch / opening hours make a suggestion impossible).
+        """
+        start = _coerce_start_time(start_time)
+        area_filter = seating_area.lower() if seating_area else "any"
+        async with transactional_session(session) as s:
+            branch = await BranchRepo.get_branch(s, branch_id)
+            if branch is None:
+                return []
+            return await ReservationService._suggest_times(
+                s, branch_id, party_size, area_filter, start, duration_minutes,
+                branch.opening_hours,
+            )
+
+    @staticmethod
+    async def accept_offer(
+        customer_id: int,
+        branch_id: int,
+        start_time: datetime,
+        party_size: int,
+        duration_minutes: int = 90,
+        seating_area: Optional[str] = None,
+        gift_item_id: Optional[int] = None,
+        notes: Optional[str] = None,
+        *,
+        session: Optional[AsyncSession] = None,
+    ) -> Tuple[Reservation, Optional[Gift]]:
+        """Book the upsell counter-proposal and issue its gift voucher.
+
+        The booking and the voucher are one unit of work (spec §9): the table is
+        held and the gift's stock is taken in the same transaction, so a customer
+        can never end up with a promised gift that was never reserved -- nor a
+        reserved gift for a booking that failed.
+
+        A repeat submission is deduplicated on the booking; the second call then
+        hands back the voucher the first one issued instead of taking a second
+        unit of stock.
+        """
+        if party_size < 1:
+            raise ValidationError("就餐人数至少为 1 位。")
+        start_time = _coerce_start_time(start_time)
+
+        async with transactional_session(session) as s:
+            reservation, created = await ReservationService._book_table_in_session(
+                s,
+                customer_id=customer_id,
+                branch_id=branch_id,
+                start_time=start_time,
+                party_size=party_size,
+                duration_minutes=duration_minutes,
+                seating_area=seating_area,
+                notes=notes,
+                deduplicate=True,
+            )
+            if gift_item_id is None:
+                return reservation, None
+            if not created:
+                # Same request as before: return the voucher already issued for
+                # it, if any, so the retry is idempotent.
+                return reservation, await GiftRepo.get_by_source(
+                    s,
+                    source_type="reservation",
+                    source_id=reservation.id,
+                    with_item=True,
+                )
+            gift = await issue_gift(
+                s,
+                branch_id=branch_id,
+                item_id=gift_item_id,
+                source_type="reservation",
+                source_id=reservation.id,
+                actor=await UserRepo.get_customer_by_id(s, customer_id),
+            )
+            return reservation, gift
 
     @staticmethod
     async def _find_duplicate_booking(

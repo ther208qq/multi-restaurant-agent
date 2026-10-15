@@ -247,8 +247,10 @@ async def test_availability_lists_free_tables(async_client):
     try:
         resp = await async_client.get(query, headers=_headers(customer_id))
         assert resp.status_code == 200
-        labels = [t["label"] for t in resp.json()]
+        body = resp.json()
+        labels = [t["label"] for t in body["tables"]]
         assert "T1" in labels
+        assert body["agent_offer"] is None  # a free slot makes no counter-offer
     finally:
         await _cleanup(customer_id=customer_id, branch_id=branch_id)
 

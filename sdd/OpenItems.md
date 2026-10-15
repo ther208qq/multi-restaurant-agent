@@ -320,3 +320,43 @@ Task19「经营统计与异常处理」已实现：按门店和日期统计订�
 **测试**：新增 `backend/tests/test_reservation_time_rules.py`（25 条：解析器合法/非法/跨零点、过去/提前量（含 18:45→19:00 严格边界）/超天数/未开门/留不足时长/不可解析、**本地已过而 UTC 未到必须拒**、**最晚入座 = 打烊 − 时长**、查空桌同规则、员工改约同规则、满座推荐命中真实空位、种子营业时间可解析、`BranchService` 校验）。因加了窗口校验，既有预订类用例的 `_slot` 由「400+ 天后」折进 1..25 天窗口、测试门店补 `opening_hours="10:00 - 23:59"`（`test_reservation_lifecycle/service/routes`、`test_audit`、`test_duplicate_requests`、`test_customer_booking/activity`）。
 
 **遗留（不在本次范围）**：`opening_hours` 仍是单段每日区间，无跨零点、无分时段（如午市/晚市两段）；提前量与 30 天是全局常量，非按门店配置；时段推荐只在**同一 UTC 日**内扫描，跨日要靠顾客另选日期。另：**聊天节点解析相对日期仍用 UTC 日**（`reservation_node` 的「今天/明天」取 `datetime.now(timezone.utc)`），本地 00:00–08:00 时 UTC 日滞后一天，会把「今晚订位」解析成昨天、落入过去而被新规则拒——本次未动（属 agent 层，且需同步改 3 个节点测试的断言），需要时以 `current_wall_time()` 统一。
+
+---
+
+## 十三、Agent 嵌入业务流 · 功能2「预订逼单」（2026-10-15 完成）
+
+按 `sdd/AgentFeatures.md` §4 实现（实现顺序 2 → 1 → 3 的第 1 步）。全量 **440 passed**
+（+8 新用例，另 `test_cleanup_residual.py` 因引用已删除的 `routes/chat` 而无法收集——**与本次无关，是 872b1e6 遗留**），`npm run build` 通过。
+
+**数据模型**：新增 `gifts` 表（`id, branch_id, item_id, source_type(order|reservation), source_id, status(pending|redeemed), created_at`）。
+发券即扣库存——券对应"确实占用的库存"，不是口头承诺。`models/gift.py` + `repo/gift.py`。
+
+**「过剩库存」口径**（`service/gift.py`，可调常量）：类目名**含**「甜点」或「饮品」（子串匹配，故「特色饮品」也算）
+且该门店库存 `>= SURPLUS_STOCK_THRESHOLD = 5`、且 `is_available`。`MenuRepo.list_surplus_candidates(...)`
+只收 `category_keywords`/`min_stock` 参数、不含规则；"什么算过剩"留在 Service。
+
+**接口**：
+- `GET /reservations/availability` **响应改为对象** `{tables, agent_offer}`（原为裸数组）。满席时 `tables=[]` 且带
+  `agent_offer = {message, alternative_times, gift_item}`；有空桌时 `agent_offer=null`。**破坏性变更**，前端与既有用例同步改。
+- 新增 `POST /reservations/accept-offer`（顾客鉴权）→ `{reservation, gift}`：`ReservationService.accept_offer`
+  **在同一个事务里**订桌 + 发券（`_book_table_in_session` 从 `book_table` 抽出，返回 `(reservation, created)`）；
+  重复提交按 `created=False` 识别，回吐首单已发的券、**不再扣第二次库存**。
+
+**Agent 子流**：`agent/offers.py::build_agent_offer` → 经薄工具
+`agent/tools/gift_tools.py::get_surplus_inventory`（→ `GiftService`）与
+`agent/tools/table_tools.py::suggest_reservation_times`（→ `ReservationService.suggest_alternative_times`，复用既有
+`_suggest_times`）取事实，再由 `compose_offer_message` 组织话术。**话术在本地确定性拼装，不调 LLM**：该接口在预订弹窗里
+随每次改动触发，走 LLM 会引入 45s 超时与不可测输出；`llm_client` 的 seam 留给功能1/3 的意图识别。
+
+**前端**：`ReservationModal` 解析新响应体；拦截到 `agent_offer` 时显示话术 + 备选时间（可点选）+ 赠品 + 「接受此安排」→
+`POST /reservations/accept-offer` → 成功页显示「已附赠「X」，到店请出示」。
+
+**审计**：新增 `gift.issued` / `gift.redeemed` 动作与 `gift` 实体（`labels.py`）。
+
+**与 `sdd/Spec.md` §6 的偏差（需确认）**：Spec §6 写「API 只调用 Service……不调用 Agent」，而 AgentFeatures §1 写
+「Agent 只在具体接口内被调用」。本次按**较新的 AgentFeatures** 落地：`routes/customer_orders.py` 直接 import
+`agent.offers`。现有边界扫描测试（`test_architecture_boundaries.py`）只禁 `routes → agent.tools`，故该写法**通过**；
+若坚持 Spec §6，则需把 offer 组装下沉到 Service（届时 `agent/offers.py` 删除）。
+
+**遗留**：券的 `redeemed` 流转尚无 B 端接口（§6 未列）；赠品只在接受逼单时发放，无"候补/等位"能力；`alternative_times`
+仅在**同一 UTC 日**内扫描（沿用既有 `_suggest_times`）。

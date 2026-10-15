@@ -3,6 +3,7 @@
 from backend.app.database import Base
 from backend.app.models.audit import AuditLog
 from backend.app.models.branch import Branch, Table
+from backend.app.models.gift import Gift
 from backend.app.models.menu import MenuCategory, MenuItem, MenuItemVariant, MenuItemStock
 from backend.app.models.order import Order, OrderItem
 from backend.app.models.reservation import Reservation
@@ -13,6 +14,7 @@ __all__ = [
     "AuditLog",
     "Branch",
     "Table",
+    "Gift",
     "MenuCategory",
     "MenuItem",
     "MenuItemVariant",

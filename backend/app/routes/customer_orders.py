@@ -12,17 +12,23 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.app.agent.offers import build_agent_offer
 from backend.app.auth.security import get_current_customer
 from backend.app.database import get_db
 from backend.app.models.user import Customer
+from backend.app.schemas.gift import GiftResponse
 from backend.app.schemas.order import (
     OrderCreate,
     OrderPreviewResponse,
     OrderResponse,
 )
 from backend.app.schemas.reservation import (
+    AgentOffer,
     ReservationAvailabilityItem,
+    ReservationAvailabilityResponse,
     ReservationCreate,
+    ReservationOfferAccept,
+    ReservationOfferAcceptResponse,
     ReservationResponse,
     parse_slot,
 )
@@ -98,7 +104,7 @@ async def create_my_order(
 
 @router.get(
     "/reservations/availability",
-    response_model=List[ReservationAvailabilityItem],
+    response_model=ReservationAvailabilityResponse,
 )
 async def list_my_availability(
     branch_id: int = Query(...),
@@ -110,7 +116,13 @@ async def list_my_availability(
     current_customer: Customer = Depends(get_current_customer),
     db: AsyncSession = Depends(get_db),
 ):
-    """List the tables bookable at a given slot (read-only availability query)."""
+    """Bookable tables for a slot, plus the agent's upsell offer when it is full.
+
+    When the slot has no free table the endpoint does not merely return an empty
+    list: it embeds the Agent's counter-proposal (a nearby time and a surplus
+    dessert / drink) as ``agent_offer`` (AgentFeatures §4), which the booking form
+    turns into an "accept this arrangement" prompt.
+    """
     start_time = parse_slot(date, time)
     tables = await ReservationService.list_available_tables(
         branch_id=branch_id,
@@ -120,7 +132,53 @@ async def list_my_availability(
         seating_area=seating_area,
         session=db,
     )
-    return [ReservationAvailabilityItem.from_table(t) for t in tables]
+    offer = None
+    if not tables:
+        offer_data = await build_agent_offer(
+            branch_id=branch_id,
+            start_time=start_time,
+            party_size=party_size,
+            duration_minutes=duration_minutes,
+            seating_area=seating_area,
+        )
+        if offer_data is not None:
+            offer = AgentOffer(**offer_data)
+    return ReservationAvailabilityResponse(
+        tables=[ReservationAvailabilityItem.from_table(t) for t in tables],
+        agent_offer=offer,
+    )
+
+
+@router.post(
+    "/reservations/accept-offer", response_model=ReservationOfferAcceptResponse
+)
+async def accept_reservation_offer(
+    payload: ReservationOfferAccept,
+    current_customer: Customer = Depends(get_current_customer),
+    db: AsyncSession = Depends(get_db),
+):
+    """Accept the agent's arrangement: book the nearby time and take the gift.
+
+    The booking and the gift voucher are created together in the Service, so the
+    customer either gets both or neither.
+    """
+    reservation, gift = await ReservationService.accept_offer(
+        current_customer.id,
+        payload.branch_id,
+        payload.to_start_time(),
+        payload.party_size,
+        payload.duration_minutes,
+        payload.seating_area_preference,
+        payload.gift_item_id,
+        payload.notes,
+        session=db,
+    )
+    return ReservationOfferAcceptResponse(
+        reservation=ReservationResponse.from_reservation(
+            reservation, customer_name=current_customer.name
+        ),
+        gift=GiftResponse.from_gift(gift) if gift is not None else None,
+    )
 
 
 @router.post("/reservations", response_model=ReservationResponse)

@@ -6,7 +6,7 @@ never commits, and never imports ``service`` / ``routes`` / ``agent``.
 
 from typing import Any, Dict, List, Optional
 
-from sqlalchemy import select, update
+from sqlalchemy import or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -152,6 +152,43 @@ class MenuRepo:
             select(MenuItemStock).where(MenuItemStock.branch_id == branch_id)
         )
         return {s.menu_item_id: s.stock_quantity for s in res.scalars().all()}
+
+    @staticmethod
+    async def list_surplus_candidates(
+        session: AsyncSession,
+        branch_id: int,
+        *,
+        category_keywords: List[str],
+        min_stock: int,
+    ) -> List[Any]:
+        """Available items in the given category *keywords* holding at least
+        ``min_stock`` units at the branch, most abundant first.
+
+        Returns ``(MenuItem, category_name, stock_quantity)`` triples. Both the
+        keyword list and the threshold are parameters, not constants: the "what
+        counts as surplus" rule belongs to the Service layer, this only fetches
+        the rows it asks for. Category matching is a substring test so a branch
+        that names its category "特色饮品" still counts as a drinks category.
+        """
+        keyword_clauses = [
+            MenuCategory.name.like(f"%{keyword}%") for keyword in category_keywords
+        ]
+        stmt = (
+            select(MenuItem, MenuCategory.name, MenuItemStock.stock_quantity)
+            .join(MenuItemStock, MenuItemStock.menu_item_id == MenuItem.id)
+            .join(MenuCategory, MenuCategory.id == MenuItem.category_id)
+            .where(
+                MenuItemStock.branch_id == branch_id,
+                MenuItemStock.stock_quantity >= min_stock,
+                MenuItem.is_available == True,  # noqa: E712
+                MenuCategory.branch_id == branch_id,
+            )
+            .order_by(MenuItemStock.stock_quantity.desc(), MenuItem.id.asc())
+        )
+        if keyword_clauses:
+            stmt = stmt.where(or_(*keyword_clauses))
+        res = await session.execute(stmt)
+        return [tuple(row) for row in res.all()]
 
     # ------------------------------------------------------------------ #
     # Atomic stock operations (semantic data access for the Service layer)

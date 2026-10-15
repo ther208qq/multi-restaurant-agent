@@ -6,6 +6,9 @@ the dict shape the Agent nodes expect. All booking rules (candidate selection,
 overlap probing, the exclusion-constraint-guarded insert) live in the service;
 this module never opens a session or touches SQLAlchemy directly. The booking is
 recorded as ``pending`` and is confirmed by staff, not here.
+
+Also hosts the nearby-slot suggestion adapter the upsell offer uses when a slot
+is full.
 """
 
 from datetime import datetime, timezone
@@ -73,3 +76,29 @@ async def check_table_availability_and_book(
         "party_size": party_size,
         "duration_minutes": duration_minutes,
     }
+
+
+async def suggest_reservation_times(
+    branch_id: int,
+    start_time: datetime,
+    party_size: int,
+    duration_minutes: int = 90,
+    seating_area: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Nearby free ``HH:MM`` slots for a full one, as a shaped dict.
+
+    Thin adapter over :meth:`ReservationService.suggest_alternative_times` for the
+    upsell offer: it only normalises the arguments and wraps the result, so the
+    offer node keeps the same dict contract as the other tools.
+    """
+    if start_time.tzinfo is None:
+        start_time = start_time.replace(tzinfo=timezone.utc)
+    times = await ReservationService.suggest_alternative_times(
+        branch_id=branch_id,
+        start_time=start_time,
+        party_size=party_size,
+        duration_minutes=duration_minutes,
+        seating_area=seating_area,
+    )
+    return {"success": True, "times": times}
+
