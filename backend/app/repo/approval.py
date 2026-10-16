@@ -66,6 +66,17 @@ class ApprovalRepo:
         return res.scalars().first()
 
     @staticmethod
+    async def list_by_orders(
+        session: AsyncSession, order_ids: List[int]
+    ) -> List[OrderApproval]:
+        """The approvals gating a batch of orders, for a one-query lookup."""
+        if not order_ids:
+            return []
+        stmt = select(OrderApproval).where(OrderApproval.order_id.in_(order_ids))
+        res = await session.execute(stmt)
+        return list(res.scalars().all())
+
+    @staticmethod
     async def list_approvals(
         session: AsyncSession,
         *,

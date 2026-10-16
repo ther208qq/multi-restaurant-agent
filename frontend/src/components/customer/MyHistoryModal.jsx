@@ -10,6 +10,7 @@ export default function MyHistoryModal({ isOpen, onClose }) {
   const [reservations, setReservations] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [cancellingId, setCancellingId] = useState(null);
 
   const fetchData = async () => {
     setLoading(true);
@@ -35,12 +36,27 @@ export default function MyHistoryModal({ isOpen, onClose }) {
     }
   }, [isOpen, tab]);
 
+  const handleCancel = async (orderId) => {
+    if (!confirm('确定取消该订单？取消后相关库存将释放。')) return;
+    setCancellingId(orderId);
+    setError('');
+    try {
+      await api.cancelOrder(orderId);
+      await fetchData();
+    } catch (err) {
+      setError(err.message || '取消订单失败。');
+    } finally {
+      setCancellingId(null);
+    }
+  };
+
   if (!isOpen) return null;
 
   // Shared by the orders tab and the reservations tab; a key present in either
   // lifecycle must be listed so no status ever leaks its raw English code.
   const STATUS_LABELS = {
     placed: '已下单',
+    pending_approval: '待审批',
     confirmed: '已确认',
     preparing: '制作中',
     ready: '已就绪',
@@ -199,6 +215,24 @@ export default function MyHistoryModal({ isOpen, onClose }) {
                     kdsHeldReason={o.kds_held_reason}
                     onSent={fetchData}
                   />
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '8px', gap: '8px' }}>
+                    {o.approval_status === 'pending' && (
+                      <span style={{ fontSize: '0.8rem', color: '#b45309' }}>⏳ 赠品待店长审批</span>
+                    )}
+                    {o.approval_status === 'rejected' && (
+                      <span style={{ fontSize: '0.8rem', color: '#9a3412' }}>赠品请求未通过</span>
+                    )}
+                    {o.status !== 'cancelled' && o.status !== 'delivered' && (
+                      <button
+                        className="btn-outline btn-sm"
+                        style={{ color: '#ef4444', marginLeft: 'auto' }}
+                        disabled={cancellingId === o.id}
+                        onClick={() => handleCancel(o.id)}
+                      >
+                        {cancellingId === o.id ? '正在取消…' : '取消订单'}
+                      </button>
+                    )}
+                  </div>
                 </div>
               ))
             )

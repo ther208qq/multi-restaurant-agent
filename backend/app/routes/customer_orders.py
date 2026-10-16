@@ -54,8 +54,15 @@ async def get_my_orders(
     orders = await OrderService.list_orders(
         customer_id=current_customer.id, session=db
     )
+    statuses = await ApprovalService.get_approval_statuses(
+        [o.id for o in orders], session=db
+    )
     return [
-        OrderResponse.from_order(o, customer_name=current_customer.name)
+        OrderResponse.from_order(
+            o,
+            customer_name=current_customer.name,
+            approval_status=statuses.get(o.id),
+        )
         for o in orders
     ]
 

@@ -135,6 +135,15 @@ class ApprovalService:
             approval = await ApprovalRepo.get_by_order(s, order_id)
             return approval.status if approval else None
 
+    @staticmethod
+    async def get_approval_statuses(
+        order_ids: list, *, session: Optional[AsyncSession] = None
+    ) -> Dict[int, str]:
+        """``{order_id: approval_status}`` for a batch of orders (one query)."""
+        async with transactional_session(session) as s:
+            approvals = await ApprovalRepo.list_by_orders(s, list(order_ids))
+            return {a.order_id: a.status for a in approvals}
+
     # ------------------------------------------------------------------ #
     # Deciding.
     # ------------------------------------------------------------------ #
