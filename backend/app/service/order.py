@@ -42,6 +42,10 @@ from backend.app.repo.user import UserRepo
 from backend.app.service.audit import AuditService
 
 VALID_ORDER_STATUSES = (
+    # ``pending_approval`` is the entry state for an order whose notes read as a
+    # freebie request (AgentFeatures §5): the order is recorded -- and its stock
+    # taken -- but waits for a manager's decision before it becomes ``placed``.
+    "pending_approval",
     "placed",
     "confirmed",
     "preparing",
@@ -66,7 +70,12 @@ DEDUPLICATE_WINDOW_MINUTES = 5
 # Legal status moves. Forward-only along the lifecycle, plus cancellation from
 # any non-terminal status and the single ``cancelled -> placed`` restore. A
 # status absent from the map (or an empty set) has no outgoing transitions.
+#
+# ``pending_approval`` is an *entry* status (AgentFeatures §5): it is set when the
+# order is created, so nothing transitions *into* it here, and it leaves only to
+# ``placed`` (a manager approves) or ``cancelled`` (a manager rejects).
 ORDER_TRANSITIONS: Dict[str, FrozenSet[str]] = {
+    "pending_approval": frozenset({"placed", "cancelled"}),
     "placed": frozenset({"confirmed", "cancelled"}),
     "confirmed": frozenset({"preparing", "cancelled"}),
     "preparing": frozenset({"ready", "cancelled"}),
@@ -88,9 +97,12 @@ KDS_TRANSITIONS: Dict[str, FrozenSet[str]] = {
 }
 
 # Order statuses whose kitchen task can still be touched. Once an order is
-# cancelled or delivered there is nothing left in the kitchen to hold or resume.
+# cancelled or delivered there is nothing left in the kitchen to hold or resume;
+# an order still awaiting approval has not been sent to the kitchen at all.
 KDS_ACTIONABLE_ORDER_STATUSES = tuple(
-    status for status in VALID_ORDER_STATUSES if status not in ("cancelled", "delivered")
+    status
+    for status in VALID_ORDER_STATUSES
+    if status not in ("cancelled", "delivered", "pending_approval")
 )
 
 # ``kds_held_reason`` is a 255-char column; the customer's message is trimmed to

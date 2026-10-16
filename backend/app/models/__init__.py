@@ -1,6 +1,7 @@
 """Database models registry."""
 
 from backend.app.database import Base
+from backend.app.models.approval import OrderApproval
 from backend.app.models.audit import AuditLog
 from backend.app.models.branch import Branch, Table
 from backend.app.models.gift import Gift
@@ -12,6 +13,7 @@ from backend.app.models.user import Customer, StaffUser
 __all__ = [
     "Base",
     "AuditLog",
+    "OrderApproval",
     "Branch",
     "Table",
     "Gift",

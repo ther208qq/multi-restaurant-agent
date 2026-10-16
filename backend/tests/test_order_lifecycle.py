@@ -23,6 +23,12 @@ from backend.app.service.order import (
 
 CHAIN = ("placed", "confirmed", "preparing", "ready", "delivered")
 
+# Statuses that are not part of the forward chain: ``cancelled`` (reachable from
+# any non-terminal status) and ``pending_approval`` -- the entry state for an
+# order awaiting a manager's freebie decision (AgentFeatures §5), which lives on
+# the matrix but is never moved *into*.
+OFF_CHAIN = ("cancelled", "pending_approval")
+
 
 async def _make_item(branch_id: int = 1, stock: int = 10, base_price: float = 2.0):
     async with transactional_session() as s:
@@ -66,11 +72,13 @@ async def _cleanup(cat_id, order_id=None):
 
 
 def test_lifecycle_vocabulary_and_matrix_are_complete():
-    assert set(VALID_ORDER_STATUSES) == set(CHAIN) | {"cancelled"}
+    assert set(VALID_ORDER_STATUSES) == set(CHAIN) | set(OFF_CHAIN)
     assert set(ORDER_TRANSITIONS) == set(VALID_ORDER_STATUSES)
     # ``delivered`` is terminal and only a cancelled order can be restored.
     assert ORDER_TRANSITIONS["delivered"] == frozenset()
     assert ORDER_TRANSITIONS["cancelled"] == frozenset({"placed"})
+    # The approval entry state leaves the chain only via a manager's decision.
+    assert ORDER_TRANSITIONS["pending_approval"] == frozenset({"placed", "cancelled"})
 
 
 async def test_happy_path_forward_transitions_leave_stock_untouched():
