@@ -62,6 +62,9 @@ AUDIT_ACTION_LABELS = {
     "table.updated": "修改餐桌",
     "gift.issued": "发放赠品",
     "gift.redeemed": "核销赠品",
+    "approval.created": "新建审批",
+    "approval.approved": "审批通过",
+    "approval.rejected": "审批驳回",
 }
 
 AUDIT_ENTITY_LABELS = {
@@ -72,6 +75,7 @@ AUDIT_ENTITY_LABELS = {
     "branch": "门店",
     "table": "餐桌",
     "gift": "赠品",
+    "approval": "审批",
 }
 
 

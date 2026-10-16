@@ -249,13 +249,49 @@ class OrderService:
         deduplicate: bool = False,
         session: Optional[AsyncSession] = None,
     ) -> Order:
-        # Validate stock, atomically decrement, and persist the order.
-        #
-        # Two passes on purpose. The first resolves and validates every line
-        # without writing anything; the second takes the stock and inserts. That
-        # keeps the duplicate check (which must not consume stock) between the
-        # two, and means a bad line aborts before the first decrement instead of
-        # halfway through.
+        async with transactional_session(session) as s:
+            return await OrderService._place_order_in_session(
+                s,
+                customer_id=customer_id,
+                branch_id=branch_id,
+                order_type=order_type,
+                items=items,
+                delivery_address=delivery_address,
+                special_notes=special_notes,
+                deduplicate=deduplicate,
+                status="placed",
+            )
+
+    @staticmethod
+    async def _place_order_in_session(
+        s: AsyncSession,
+        *,
+        customer_id: int,
+        branch_id: int,
+        order_type: str,
+        items: List[Dict[str, Any]],
+        delivery_address: Optional[str],
+        special_notes: Optional[str],
+        deduplicate: bool,
+        status: str = "placed",
+    ) -> Order:
+        """Create one order inside the caller's open transaction.
+
+        The transaction-free core of :meth:`place_order`, exposed so a caller whose
+        order is one half of a larger unit of work can place it in its own
+        transaction -- the approval flow (AgentFeatures §5) records the order and
+        its approval row together. ``status`` lets that caller place the order
+        straight into ``pending_approval`` instead of ``placed``; the validation,
+        stock decrement and audit trail are otherwise identical.
+
+        Validate stock, atomically decrement, and persist the order.
+
+        Two passes on purpose. The first resolves and validates every line
+        without writing anything; the second takes the stock and inserts. That
+        keeps the duplicate check (which must not consume stock) between the
+        two, and means a bad line aborts before the first decrement instead of
+        halfway through.
+        """
         if not items:
             raise ValidationError(
                 "订单不能为空，请指定想要点的菜品。"
@@ -264,82 +300,81 @@ class OrderService:
             raise ValidationError(
                 "外卖订单需要填写配送地址，请提供您的收货地址。"
             )
-        async with transactional_session(session) as s:
-            planned: List[Dict[str, Any]] = []
-            total_amount = 0.0
-            for req in items:
-                item_id = req.get('menu_item_id')
-                qty = req.get('quantity', 1)
-                if qty <= 0:
-                    raise ValidationError(f'菜品 #{item_id} 的数量至少为 1。')
-                menu_item = await MenuRepo.get_item(s, item_id, with_variants=True)
-                if menu_item is None:
-                    raise NotFoundError(f'菜品 #{item_id} 不存在。')
-                if not menu_item.is_available:
-                    raise ConflictError(f"「{menu_item.name}」当前不可供应。")
-                stock = await MenuRepo.get_stock_for_update(s, item_id, branch_id)
-                available = stock.stock_quantity if stock else 0
-                if available < qty:
-                    raise ConflictError(f'「{menu_item.name}」库存不足，仅剩 {available} 份（需要 {qty} 份，缺 {qty - available} 份）。')
-                # Resolve variants against the DB *before* touching stock, so a
-                # bad variant reference aborts without a half-applied order.
-                variants = _resolve_variants(menu_item, req.get('selected_variants'))
-                unit_price = _unit_price(menu_item.base_price, variants)
-                total_amount += round(unit_price * qty, 2)
-                planned.append({'menu_item_id': item_id, 'name': menu_item.name, 'quantity': qty, 'unit_price': unit_price, 'selected_variants': variants, 'item_notes': req.get('item_notes')})
+        planned: List[Dict[str, Any]] = []
+        total_amount = 0.0
+        for req in items:
+            item_id = req.get('menu_item_id')
+            qty = req.get('quantity', 1)
+            if qty <= 0:
+                raise ValidationError(f'菜品 #{item_id} 的数量至少为 1。')
+            menu_item = await MenuRepo.get_item(s, item_id, with_variants=True)
+            if menu_item is None:
+                raise NotFoundError(f'菜品 #{item_id} 不存在。')
+            if not menu_item.is_available:
+                raise ConflictError(f"「{menu_item.name}」当前不可供应。")
+            stock = await MenuRepo.get_stock_for_update(s, item_id, branch_id)
+            available = stock.stock_quantity if stock else 0
+            if available < qty:
+                raise ConflictError(f'「{menu_item.name}」库存不足，仅剩 {available} 份（需要 {qty} 份，缺 {qty - available} 份）。')
+            # Resolve variants against the DB *before* touching stock, so a
+            # bad variant reference aborts without a half-applied order.
+            variants = _resolve_variants(menu_item, req.get('selected_variants'))
+            unit_price = _unit_price(menu_item.base_price, variants)
+            total_amount += round(unit_price * qty, 2)
+            planned.append({'menu_item_id': item_id, 'name': menu_item.name, 'quantity': qty, 'unit_price': unit_price, 'selected_variants': variants, 'item_notes': req.get('item_notes')})
 
-            if deduplicate:
-                existing = await OrderService._find_duplicate_order(
-                    s,
-                    customer_id=customer_id,
-                    branch_id=branch_id,
-                    order_type=order_type,
-                    delivery_address=delivery_address,
-                    planned=planned,
-                )
-                if existing is not None:
-                    # The same request, already placed: hand back the original
-                    # order instead of selling the customer a second one. No
-                    # stock is taken twice, no second order row, no second audit
-                    # entry -- the caller's reply is identical either way.
-                    return existing
-
-            for line in planned:
-                if not await MenuRepo.try_decrement_stock(s, line['menu_item_id'], branch_id, line['quantity']):
-                    raise ConflictError(f"「{line['name']}」库存已发生变化，请重试。")
-            order = await OrderRepo.create_order(
+        if deduplicate:
+            existing = await OrderService._find_duplicate_order(
                 s,
-                {
-                    'customer_id': customer_id,
-                    'branch_id': branch_id,
-                    'order_type': order_type,
-                    'status': 'placed',
-                    'delivery_address': delivery_address if order_type == 'delivery' else None,
-                    'special_notes': special_notes,
-                    'total_amount': round(total_amount, 2),
-                },
-            )
-            for p in planned:
-                payload = dict(p)
-                # ``name`` is carried only for error messages, not stored.
-                payload.pop('name', None)
-                await OrderRepo.add_order_item(s, {'order_id': order.id, **payload})
-            # Audit trail (spec §9): who placed the order, in which branch.
-            await AuditService.record(
-                s,
-                'order.created',
-                entity_type='order',
-                entity_id=order.id,
+                customer_id=customer_id,
                 branch_id=branch_id,
-                actor=await UserRepo.get_customer_by_id(s, customer_id),
-                details={
-                    'order_type': order_type,
-                    'status': order.status,
-                    'total_amount': round(total_amount, 2),
-                    'line_count': len(planned),
-                },
+                order_type=order_type,
+                delivery_address=delivery_address,
+                planned=planned,
             )
-            return order
+            if existing is not None:
+                # The same request, already placed: hand back the original
+                # order instead of selling the customer a second one. No
+                # stock is taken twice, no second order row, no second audit
+                # entry -- the caller's reply is identical either way.
+                return existing
+
+        for line in planned:
+            if not await MenuRepo.try_decrement_stock(s, line['menu_item_id'], branch_id, line['quantity']):
+                raise ConflictError(f"「{line['name']}」库存已发生变化，请重试。")
+        order = await OrderRepo.create_order(
+            s,
+            {
+                'customer_id': customer_id,
+                'branch_id': branch_id,
+                'order_type': order_type,
+                'status': status,
+                'delivery_address': delivery_address if order_type == 'delivery' else None,
+                'special_notes': special_notes,
+                'total_amount': round(total_amount, 2),
+            },
+        )
+        for p in planned:
+            payload = dict(p)
+            # ``name`` is carried only for error messages, not stored.
+            payload.pop('name', None)
+            await OrderRepo.add_order_item(s, {'order_id': order.id, **payload})
+        # Audit trail (spec §9): who placed the order, in which branch.
+        await AuditService.record(
+            s,
+            'order.created',
+            entity_type='order',
+            entity_id=order.id,
+            branch_id=branch_id,
+            actor=await UserRepo.get_customer_by_id(s, customer_id),
+            details={
+                'order_type': order_type,
+                'status': order.status,
+                'total_amount': round(total_amount, 2),
+                'line_count': len(planned),
+            },
+        )
+        return order
 
     @staticmethod
     async def _find_duplicate_order(
