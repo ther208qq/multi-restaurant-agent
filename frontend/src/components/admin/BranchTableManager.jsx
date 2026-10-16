@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../../api';
-import { MapPin, Plus, RefreshCw, Layers, Check, X, ShieldAlert } from 'lucide-react';
+import { Plus, RefreshCw } from 'lucide-react';
 
 export default function BranchTableManager({ currentStaff, branches, onRefreshBranches }) {
   const [selectedBranchId, setSelectedBranchId] = useState(
@@ -171,10 +171,6 @@ export default function BranchTableManager({ currentStaff, branches, onRefreshBr
               <div>
                 <strong>容纳人数：</strong> {t.min_capacity} - {t.capacity} 人
               </div>
-            </div>
-
-            <div style={{ marginTop: 'auto', paddingTop: '8px', borderTop: '1px solid #f1f5f9', fontSize: '0.75rem', color: 'var(--accent)', fontWeight: 600 }}>
-              ✓ 由 PostgreSQL GIST 排他约束保护
             </div>
           </div>
         ))}

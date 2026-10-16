@@ -593,3 +593,12 @@ pgvector）。本项目是 **Python + FastAPI + LangGraph + 自建 `llm_client` 
 所以①卡片渲染成「 - 4 人」，②「添加餐桌」弹窗里的**最小容量输入被后端静默忽略**。
 二选一：给 `tables` 真加一列（含迁移 + schema + 订位 best-fit 口径），或把该字段从 UI 撤掉。
 
+**同页展示清理**（本次一并做）：删掉每张卡片底部的 `✓ 由 PostgreSQL GIST 排他约束保护`（原 `:176-178`）。
+先核实过这**不是假话**——开发库里约束确在：
+`no_overlapping_active_table_reservations` = `EXCLUDE USING gist (table_id WITH =, booking_window WITH &&)
+WHERE status IN ('pending','confirmed','seated')`，`btree_gist 1.7` 已安装。
+删它的理由不是"错"，而是：数据库实现细节不该印在店员界面上，且 12 张卡各印一遍纯噪声；
+严格说该约束保护的是**预订**（`reservations` 行），不是"桌子"这个对象。
+顺带清掉同一文件里 5 个未使用的 lucide import（`MapPin`/`Layers`/`Check`/`X`/`ShieldAlert`，只剩 `Plus`/`RefreshCw` 在用）。
+`npm run build` 通过。
+
