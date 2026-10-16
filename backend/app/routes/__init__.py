@@ -8,6 +8,7 @@ from backend.app.routes.staff_approvals import router as staff_approvals_router
 from backend.app.routes.staff_audit import router as staff_audit_router
 from backend.app.routes.staff_auth import router as staff_auth_router
 from backend.app.routes.staff_branches import router as staff_branches_router
+from backend.app.routes.staff_diagnostics import router as staff_diagnostics_router
 from backend.app.routes.staff_menu import router as staff_menu_router
 from backend.app.routes.staff_orders import router as staff_orders_router
 from backend.app.routes.staff_reservations import router as staff_reservations_router
@@ -22,6 +23,7 @@ __all__ = [
     "staff_audit_router",
     "staff_auth_router",
     "staff_branches_router",
+    "staff_diagnostics_router",
     "staff_menu_router",
     "staff_orders_router",
     "staff_reservations_router",

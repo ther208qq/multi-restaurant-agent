@@ -26,6 +26,7 @@ from backend.app.routes import (
     staff_audit_router,
     staff_auth_router,
     staff_branches_router,
+    staff_diagnostics_router,
     staff_menu_router,
     staff_orders_router,
     staff_reservations_router,
@@ -93,6 +94,7 @@ app.include_router(customer_agent_router, prefix="/api")
 app.include_router(staff_audit_router, prefix="/api")
 app.include_router(staff_approvals_router, prefix="/api")
 app.include_router(staff_branches_router, prefix="/api")
+app.include_router(staff_diagnostics_router, prefix="/api")
 app.include_router(staff_menu_router, prefix="/api")
 app.include_router(staff_orders_router, prefix="/api")
 app.include_router(staff_reservations_router, prefix="/api")

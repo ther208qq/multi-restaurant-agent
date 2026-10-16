@@ -331,6 +331,16 @@ export const api = {
     return request(`/staff/stats${qs}`, { method: 'GET' }, 'staff');
   },
 
+  // Staff Store-Anomaly Diagnosis
+  getDiagnosis: (branchId = null, startDate = null, endDate = null) => {
+    const params = new URLSearchParams();
+    if (branchId) params.append('branch_id', branchId);
+    if (startDate) params.append('start_date', startDate);
+    if (endDate) params.append('end_date', endDate);
+    const qs = params.toString() ? `?${params.toString()}` : '';
+    return request(`/staff/diagnosis${qs}`, { method: 'GET' }, 'staff');
+  },
+
   // Staff Menu & Stock
   getStaffCategories: (branchId = null) => {    const qs = branchId ? `?branch_id=${branchId}` : '';
     return request(`/staff/menu/categories${qs}`, { method: 'GET' }, 'staff');
