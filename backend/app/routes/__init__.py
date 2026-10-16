@@ -4,6 +4,7 @@ from backend.app.routes.auth import router as auth_router
 from backend.app.routes.branches import router as branches_router
 from backend.app.routes.customer_agent import router as customer_agent_router
 from backend.app.routes.customer_orders import router as customer_orders_router
+from backend.app.routes.staff_approvals import router as staff_approvals_router
 from backend.app.routes.staff_audit import router as staff_audit_router
 from backend.app.routes.staff_auth import router as staff_auth_router
 from backend.app.routes.staff_branches import router as staff_branches_router
@@ -17,6 +18,7 @@ __all__ = [
     "branches_router",
     "customer_agent_router",
     "customer_orders_router",
+    "staff_approvals_router",
     "staff_audit_router",
     "staff_auth_router",
     "staff_branches_router",

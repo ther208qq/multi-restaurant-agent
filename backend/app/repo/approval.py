@@ -11,7 +11,23 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from backend.app.models.approval import OrderApproval
-from backend.app.models.order import Order
+from backend.app.models.order import Order, OrderItem
+
+
+def _order_load_options():
+    """Eager-load a gated order fully enough to render it in a response.
+
+    The approval board shows each gated order's lines (with item names) and its
+    branch, so loading the order alone is not enough -- touching an unloaded
+    relationship in async context raises instead of fetching it. ``customer`` is
+    left out: the board does not need it, and it stays an optional field.
+    """
+    return [
+        selectinload(OrderApproval.order)
+        .selectinload(Order.items)
+        .selectinload(OrderItem.menu_item),
+        selectinload(OrderApproval.order).selectinload(Order.branch),
+    ]
 
 
 class ApprovalRepo:
@@ -30,7 +46,7 @@ class ApprovalRepo:
     ) -> Optional[OrderApproval]:
         stmt = select(OrderApproval).where(OrderApproval.id == approval_id)
         if with_order:
-            stmt = stmt.options(selectinload(OrderApproval.order))
+            stmt = stmt.options(*_order_load_options())
         res = await session.execute(stmt)
         return res.scalar_one_or_none()
 
@@ -45,7 +61,7 @@ class ApprovalRepo:
             .order_by(OrderApproval.id.desc())
         )
         if with_order:
-            stmt = stmt.options(selectinload(OrderApproval.order))
+            stmt = stmt.options(*_order_load_options())
         res = await session.execute(stmt)
         return res.scalars().first()
 
@@ -66,7 +82,7 @@ class ApprovalRepo:
         """
         stmt = select(OrderApproval)
         if with_order:
-            stmt = stmt.options(selectinload(OrderApproval.order))
+            stmt = stmt.options(*_order_load_options())
         if branch_id is not None:
             stmt = stmt.join(Order, Order.id == OrderApproval.order_id).where(
                 Order.branch_id == branch_id

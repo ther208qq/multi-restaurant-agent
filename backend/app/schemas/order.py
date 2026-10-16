@@ -126,12 +126,19 @@ class OrderResponse(BaseModel):
     items: List[OrderItemResponse] = []
     branch_name: Optional[str] = None
     customer_name: Optional[str] = None
+    # Set when this order is gated for manager approval (AgentFeatures §5): the
+    # id of the ``OrderApproval`` the manager acts on. ``None`` for a normal order.
+    approval_id: Optional[int] = None
 
     model_config = ConfigDict(from_attributes=True)
 
     @classmethod
     def from_order(
-        cls, order: Any, *, customer_name: Optional[str] = None
+        cls,
+        order: Any,
+        *,
+        customer_name: Optional[str] = None,
+        approval_id: Optional[int] = None,
     ) -> "OrderResponse":
         """Build the response from an ``Order`` ORM object.
 
@@ -160,4 +167,5 @@ class OrderResponse(BaseModel):
             customer_name=customer_name
             if customer_name is not None
             else (loaded_customer.name if loaded_customer else None),
+            approval_id=approval_id,
         )

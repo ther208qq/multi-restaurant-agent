@@ -9,9 +9,10 @@ someone else's behalf.
 """
 
 from typing import List, Optional
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.app.agent.approvals import GIFT_REQUEST, assess_order_note
 from backend.app.agent.offers import build_agent_offer
 from backend.app.auth.security import get_current_customer
 from backend.app.database import get_db
@@ -32,6 +33,7 @@ from backend.app.schemas.reservation import (
     ReservationResponse,
     parse_slot,
 )
+from backend.app.service.approval import ApprovalService
 from backend.app.service.order import OrderService
 from backend.app.service.reservation import ReservationService
 
@@ -74,18 +76,61 @@ async def preview_my_order(
     return OrderPreviewResponse.from_preview(preview)
 
 
-@router.post("/orders", response_model=OrderResponse)
-async def create_my_order(
-    payload: OrderCreate,
+@router.get("/orders/{order_id}", response_model=OrderResponse)
+async def get_my_order(
+    order_id: int,
     current_customer: Customer = Depends(get_current_customer),
     db: AsyncSession = Depends(get_db),
 ):
-    """Place an order for the authenticated customer (status ``placed``).
+    """One of the current customer's orders by id -- the checkout page's poll.
 
-    ``deduplicate`` is deliberately off here: a customer submitting the same
-    basket twice may genuinely want a second helping. The chat/Agent path keeps
-    the guard on for a model that emits the same tool call twice.
+    An order gated for approval (AgentFeatures §5) changes status when a manager
+    decides, so the customer page re-reads it here until it leaves
+    ``pending_approval``. Ownership is enforced in the Service (404 unknown, 403
+    not yours).
     """
+    await OrderService.get_customer_order(order_id, current_customer.id, session=db)
+    full = await OrderService.get_order(order_id, session=db)
+    return OrderResponse.from_order(full, customer_name=current_customer.name)
+
+
+@router.post("/orders", response_model=OrderResponse)
+async def create_my_order(
+    payload: OrderCreate,
+    response: Response,
+    current_customer: Customer = Depends(get_current_customer),
+    db: AsyncSession = Depends(get_db),
+):
+    """Place an order for the authenticated customer.
+
+    The order's notes are read for a freebie request first (AgentFeatures §5): if
+    the customer is asking for a gift, the order is not placed outright -- it is
+    recorded as ``pending_approval`` with an approval record, and the reply is
+    **202** with the order carrying ``approval_id``. Otherwise the order is placed
+    normally (200). Either way the order holds its stock immediately.
+
+    ``deduplicate`` is deliberately off: a customer submitting the same basket
+    twice may genuinely want a second helping. The chat/Agent path keeps the
+    guard on for a model that emits the same tool call twice.
+    """
+    assessment = await assess_order_note(payload.branch_id, payload.special_notes)
+    if assessment["intent"] == GIFT_REQUEST:
+        order, approval = await ApprovalService.create_pending_order(
+            current_customer.id,
+            payload.branch_id,
+            payload.order_type,
+            _item_payloads(payload.items),
+            payload.delivery_address,
+            payload.special_notes,
+            intent=assessment["intent"],
+            session=db,
+        )
+        full = await OrderService.get_order(order.id, session=db)
+        response.status_code = status.HTTP_202_ACCEPTED
+        return OrderResponse.from_order(
+            full, customer_name=current_customer.name, approval_id=approval.id
+        )
+
     order = await OrderService.place_order(
         current_customer.id,
         payload.branch_id,
