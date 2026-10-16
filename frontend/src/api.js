@@ -247,6 +247,18 @@ export const api = {
       'staff'
     ),
 
+  // Advance the order's simulated KDS state (kitchen side): queued -> cooking ->
+  // done, or send a held task back to the queue.
+  updateOrderKds: (orderId, status) =>
+    request(
+      `/staff/orders/${orderId}/kds`,
+      {
+        method: 'PATCH',
+        body: JSON.stringify({ status }),
+      },
+      'staff'
+    ),
+
   // Staff Approvals (AgentFeatures feature 3): orders gated behind a manager's
   // decision on a freebie request. Approve takes the manager's chosen gift_id;
   // the server re-validates it against live stock.

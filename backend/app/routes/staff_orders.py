@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.app.auth.security import get_current_staff
 from backend.app.database import get_db
 from backend.app.models.user import StaffUser
-from backend.app.schemas.order import OrderResponse, OrderStatusUpdate
+from backend.app.schemas.order import OrderKdsUpdate, OrderResponse, OrderStatusUpdate
 from backend.app.service.order import OrderService
 
 router = APIRouter(prefix="/staff/orders", tags=["Staff Orders Management"])
@@ -48,6 +48,27 @@ async def update_order_status(
     """Update order status through the legal lifecycle (placed -> confirmed ->
     preparing -> ready -> delivered, or cancelled from any non-terminal state)."""
     order = await OrderService.update_status(
+        order_id,
+        payload.status,
+        staff=current_staff,
+        session=db,
+    )
+    return OrderResponse.from_order(order)
+
+
+@router.patch("/{order_id}/kds", response_model=OrderResponse)
+async def update_order_kds_status(
+    order_id: int,
+    payload: OrderKdsUpdate,
+    current_staff: StaffUser = Depends(get_current_staff),
+    db: AsyncSession = Depends(get_db),
+):
+    """Advance the order's simulated KDS state (the kitchen's side).
+
+    The staff drives ``queued -> cooking -> done`` and can send a held task back
+    to the queue. Legal moves are enforced by the Service's KDS transition matrix.
+    """
+    order = await OrderService.update_kds_status(
         order_id,
         payload.status,
         staff=current_staff,

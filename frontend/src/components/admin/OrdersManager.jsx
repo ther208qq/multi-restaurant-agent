@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../../api';
-import { ShoppingBag, RefreshCw, Check, Clock, Truck, XCircle, AlertCircle, ChevronRight } from 'lucide-react';
+import { ShoppingBag, RefreshCw, Check, Clock, Truck, XCircle, AlertCircle, ChefHat } from 'lucide-react';
 
 export default function OrdersManager({ currentStaff, branches }) {
   const [orders, setOrders] = useState([]);
@@ -42,6 +42,18 @@ export default function OrdersManager({ currentStaff, branches }) {
     }
   };
 
+  const handleUpdateKds = async (orderId, newStatus) => {
+    setUpdatingId(orderId);
+    try {
+      await api.updateOrderKds(orderId, newStatus);
+      await fetchOrders();
+    } catch (err) {
+      alert(`更新后厨状态 #${orderId} 失败：${err.message}`);
+    } finally {
+      setUpdatingId(null);
+    }
+  };
+
   const STATUS_LABELS = {
     placed: '已下单',
     confirmed: '已确认',
@@ -49,6 +61,13 @@ export default function OrdersManager({ currentStaff, branches }) {
     ready: '已就绪',
     delivered: '已送达',
     cancelled: '已取消',
+  };
+
+  const KDS_LABELS = {
+    queued: '后厨待制作',
+    cooking: '后厨制作中',
+    held: '后厨已挂起',
+    done: '后厨已出餐',
   };
 
   const ORDER_TYPE_LABELS = {
@@ -72,6 +91,20 @@ export default function OrdersManager({ currentStaff, branches }) {
         return <span className="badge badge-neutral">{label}</span>;
       case 'cancelled':
         return <span className="badge badge-danger">{label}</span>;
+      default:
+        return <span className="badge badge-neutral">{label}</span>;
+    }
+  };
+
+  const getKdsBadge = (status) => {
+    const label = KDS_LABELS[status] || status;
+    switch (status) {
+      case 'cooking':
+        return <span className="badge badge-warning">{label}</span>;
+      case 'held':
+        return <span className="badge badge-danger">{label}</span>;
+      case 'done':
+        return <span className="badge badge-success">{label}</span>;
       default:
         return <span className="badge badge-neutral">{label}</span>;
     }
@@ -186,7 +219,10 @@ export default function OrdersManager({ currentStaff, branches }) {
                     顾客：<strong>{o.customer_name || '访客'}</strong>
                   </div>
                 </div>
-                {getStatusBadge(o.status)}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  {getStatusBadge(o.status)}
+                  {getKdsBadge(o.kds_status)}
+                </div>
               </div>
 
               {/* Order Items */}
@@ -297,6 +333,55 @@ export default function OrdersManager({ currentStaff, branches }) {
                   </button>
                 )}
               </div>
+
+              {/* Kitchen (simulated KDS) */}
+              {o.kds_status !== 'done' && (
+                <div
+                  style={{
+                    display: 'flex',
+                    gap: '6px',
+                    marginTop: '4px',
+                    paddingTop: '6px',
+                    borderTop: '1px dashed #f1f5f9',
+                    alignItems: 'center',
+                    flexWrap: 'wrap',
+                  }}
+                >
+                  <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>后厨</span>
+                  {o.kds_status === 'held' && (
+                    <span style={{ fontSize: '0.75rem', color: '#b45309' }}>
+                      已挂起{o.kds_held_reason ? `：${o.kds_held_reason}` : ''}
+                    </span>
+                  )}
+                  {o.kds_status === 'queued' && (
+                    <button
+                      disabled={updatingId === o.id}
+                      onClick={() => handleUpdateKds(o.id, 'cooking')}
+                      className="btn-outline btn-sm"
+                    >
+                      <ChefHat size={14} /> 开始制作
+                    </button>
+                  )}
+                  {o.kds_status === 'cooking' && (
+                    <button
+                      disabled={updatingId === o.id}
+                      onClick={() => handleUpdateKds(o.id, 'done')}
+                      className="btn-secondary btn-sm"
+                    >
+                      <Check size={14} /> 出餐
+                    </button>
+                  )}
+                  {o.kds_status === 'held' && (
+                    <button
+                      disabled={updatingId === o.id}
+                      onClick={() => handleUpdateKds(o.id, 'queued')}
+                      className="btn-outline btn-sm"
+                    >
+                      解除挂起
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
           ))}
         </div>

@@ -64,6 +64,12 @@ class OrderStatusUpdate(BaseModel):
     status: str  # placed, confirmed, preparing, ready, delivered, cancelled
 
 
+class OrderKdsUpdate(BaseModel):
+    """A staff kitchen move: the target KDS state (queued | cooking | held | done)."""
+
+    status: str
+
+
 class OrderKdsRequest(BaseModel):
     """A customer's free-text message to the kitchen for one of their orders."""
 

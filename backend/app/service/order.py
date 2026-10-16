@@ -699,6 +699,60 @@ class OrderService:
             await s.refresh(order)
             return order
 
+    @staticmethod
+    async def update_kds_status(
+        order_id: int,
+        new_status: str,
+        *,
+        staff: Optional[StaffUser] = None,
+        session: Optional[AsyncSession] = None,
+    ) -> Order:
+        """Advance an order's simulated KDS state -- the kitchen's side.
+
+        The kitchen moves ``queued -> cooking -> done`` and can send a held task
+        back to the queue (``held -> queued``). Legal moves come from
+        :data:`KDS_TRANSITIONS`; branch scoping and the "still actionable" rule
+        mirror the order-status flow. A move to the current state is a no-op.
+        """
+        async with transactional_session(session) as s:
+            order = await OrderRepo.get_order(
+                s, order_id, with_items_menu_item=True, with_branch=True
+            )
+            if order is None:
+                raise NotFoundError(f'订单 #{order_id} 不存在。')
+            if staff is not None and staff.branch_id and order.branch_id != staff.branch_id:
+                raise ForbiddenError('您没有权限管理该门店的订单。')
+            if order.status not in KDS_ACTIONABLE_ORDER_STATUSES:
+                raise ValidationError(
+                    f'订单当前状态为「{_status_label(order.status)}」，无法操作后厨。'
+                )
+            if order.kds_status == "done":
+                raise ValidationError('该订单已出餐。')
+            if new_status not in KDS_TRANSITIONS:
+                raise ValidationError(
+                    f'无效的后厨状态 {new_status}，必须是以下之一：{list(KDS_TRANSITIONS)}。'
+                )
+            if new_status == order.kds_status:
+                return order
+            if new_status not in KDS_TRANSITIONS.get(order.kds_status, frozenset()):
+                raise ValidationError(
+                    f'不允许将后厨任务从「{_kds_status_label(order.kds_status)}」变更为'
+                    f'「{_kds_status_label(new_status)}」。'
+                )
+            previous = order.kds_status
+            await OrderRepo.update_kds_status(s, order, new_status)
+            await AuditService.record(
+                s,
+                'order.kds_changed',
+                entity_type='order',
+                entity_id=order.id,
+                branch_id=order.branch_id,
+                actor=staff,
+                details={'from': previous, 'to': new_status},
+            )
+            await s.refresh(order)
+            return order
+
 
 __all__ = [
     "OrderService",
