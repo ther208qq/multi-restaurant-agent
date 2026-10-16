@@ -280,7 +280,7 @@ async def test_staff_approve_with_unavailable_gift_is_409(async_client, staff_au
         await _cleanup(branch_id, customer)
 
 
-async def test_staff_reject_cancels_order(async_client, staff_auth_headers):
+async def test_staff_reject_places_order_without_gift(async_client, staff_auth_headers):
     branch_id, main_item_id, _gift = await _make_branch(main_stock=10)
     customer = await _make_customer()
     try:
@@ -291,8 +291,8 @@ async def test_staff_reject_cancels_order(async_client, staff_auth_headers):
         )
         assert resp.status_code == 200
         assert resp.json()["status"] == "rejected"
-        assert resp.json()["order"]["status"] == "cancelled"
-        assert await _stock_of(main_item_id, branch_id) == 10  # released
+        assert resp.json()["order"]["status"] == "placed"  # order proceeds, no gift
+        assert await _stock_of(main_item_id, branch_id) == 8  # not released
     finally:
         await _cleanup(branch_id, customer)
 
@@ -327,3 +327,65 @@ async def test_branch_scoped_staff_cannot_act_on_another_branch(async_client):
     finally:
         await _cleanup(branch_id, customer, staff_ids=(staff_id,))
         await _cleanup(other_branch)
+
+
+async def test_get_order_surfaces_approval_status(async_client, staff_auth_headers):
+    """After a reject the order proceeds but the customer sees approval_status."""
+    branch_id, main_item_id, _gift = await _make_branch()
+    customer = await _make_customer()
+    try:
+        placed = (await _place(async_client, customer, branch_id, main_item_id, "送我一个甜品呗")).json()
+        pending = await async_client.get(
+            f"/api/orders/{placed['id']}", headers=_customer_headers(customer)
+        )
+        assert pending.json()["approval_status"] == "pending"
+
+        await async_client.post(
+            f"/api/staff/approvals/{placed['approval_id']}/reject",
+            headers=staff_auth_headers,
+        )
+        polled = await async_client.get(
+            f"/api/orders/{placed['id']}", headers=_customer_headers(customer)
+        )
+        body = polled.json()
+        assert body["status"] == "placed"
+        assert body["approval_status"] == "rejected"
+    finally:
+        await _cleanup(branch_id, customer)
+
+
+async def test_customer_cancel_order(async_client):
+    branch_id, main_item_id, _gift = await _make_branch(main_stock=10)
+    customer = await _make_customer()
+    try:
+        order = (await _place(async_client, customer, branch_id, main_item_id, None)).json()
+        assert order["status"] == "placed"
+        assert await _stock_of(main_item_id, branch_id) == 8  # qty 2 taken
+        resp = await async_client.post(
+            f"/api/orders/{order['id']}/cancel", headers=_customer_headers(customer)
+        )
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "cancelled"
+        assert await _stock_of(main_item_id, branch_id) == 10  # released
+        # Idempotent.
+        again = await async_client.post(
+            f"/api/orders/{order['id']}/cancel", headers=_customer_headers(customer)
+        )
+        assert again.status_code == 200
+        assert again.json()["status"] == "cancelled"
+    finally:
+        await _cleanup(branch_id, customer)
+
+
+async def test_customer_cancel_requires_ownership(async_client):
+    branch_id, main_item_id, _gift = await _make_branch()
+    owner = await _make_customer()
+    stranger = await _make_customer()
+    try:
+        order = (await _place(async_client, owner, branch_id, main_item_id, None)).json()
+        resp = await async_client.post(
+            f"/api/orders/{order['id']}/cancel", headers=_customer_headers(stranger)
+        )
+        assert resp.status_code == 403
+    finally:
+        await _cleanup(branch_id, owner, stranger)

@@ -143,6 +143,11 @@ export const api = {
   // cancelled) without reloading the whole history.
   getOrder: (orderId) => request(`/orders/${orderId}`, { method: 'GET' }, 'customer'),
 
+  // Cancel one of my own orders (stock released). The customer decides this --
+  // e.g. after a gift request was declined and they no longer want the order.
+  cancelOrder: (orderId) =>
+    request(`/orders/${orderId}/cancel`, { method: 'POST' }, 'customer'),
+
   // Customer self-service ordering & booking
   previewOrder: (payload) =>
     request(

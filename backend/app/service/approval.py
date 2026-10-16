@@ -125,6 +125,16 @@ class ApprovalService:
                 raise NotFoundError(f"审批 #{approval_id} 不存在。")
             return approval
 
+    @staticmethod
+    async def get_approval_status(
+        order_id: int, *, session: Optional[AsyncSession] = None
+    ) -> Optional[str]:
+        """The outcome of the approval gating an order, or ``None`` when there is
+        no approval (a normal order)."""
+        async with transactional_session(session) as s:
+            approval = await ApprovalRepo.get_by_order(s, order_id)
+            return approval.status if approval else None
+
     # ------------------------------------------------------------------ #
     # Deciding.
     # ------------------------------------------------------------------ #
@@ -224,21 +234,24 @@ class ApprovalService:
         staff: Optional[StaffUser] = None,
         session: Optional[AsyncSession] = None,
     ) -> Tuple[OrderApproval, Order]:
-        """Reject the request: cancel the order and release its stock.
+        """Reject the freebie request -- the order itself still goes through.
 
-        The order never had a gift (none is issued until approval), so cancelling
-        it only restores the stock its own lines hold -- the same effect
-        :meth:`OrderService.update_status` gives a ``pending_approval -> cancelled``
-        move, applied inside this transaction.
+        Declining a gift is not the same as cancelling the order: the customer
+        ordered real dishes and their stock was already taken. Rejection only
+        withholds the freebie -- the order proceeds to ``placed`` (with no gift
+        line) and the approval closes as ``rejected``. The customer is told the
+        request was declined and may cancel the order themselves if they no longer
+        want it.
         """
         async with transactional_session(session) as s:
             approval, order = await ApprovalService._load_pending_decision(
                 s, approval_id, staff
             )
-            if "cancelled" not in ORDER_TRANSITIONS.get(order.status, frozenset()):
-                raise ValidationError("该订单当前状态不允许取消。")
-            await OrderService._apply_status_stock_effects(s, order, "cancelled")
-            await OrderRepo.update_order_status(s, order, "cancelled")
+            if "placed" not in ORDER_TRANSITIONS.get(order.status, frozenset()):
+                raise ValidationError("该订单当前状态不允许通过或拒绝审批。")
+            # No gift is issued, so there is no stock to reverse -- the order's
+            # own lines keep their stock (the dishes will be prepared).
+            await OrderRepo.update_order_status(s, order, "placed")
             await ApprovalRepo.update_status(s, approval, "rejected")
             await AuditService.record(
                 s,
@@ -247,7 +260,7 @@ class ApprovalService:
                 entity_id=approval.id,
                 branch_id=order.branch_id,
                 actor=staff,
-                details={"order_id": order.id},
+                details={"order_id": order.id, "order_status": "placed"},
             )
             await s.refresh(order)
             return approval, order

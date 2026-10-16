@@ -253,7 +253,8 @@ async def test_approve_foreign_branch_staff_is_forbidden():
 # --------------------------------------------------------------------------- #
 # reject
 # --------------------------------------------------------------------------- #
-async def test_reject_cancels_order_and_restocks():
+async def test_reject_places_order_without_gift_and_keeps_stock():
+    """Rejecting the freebie must not cancel the order or return its stock."""
     branch_id, main_item_id, _gift = await _make_branch(main_stock=10)
     customer = await _make_customer()
     try:
@@ -261,8 +262,8 @@ async def test_reject_cancels_order_and_restocks():
         assert await _stock_of(main_item_id, branch_id) == 8
         approval, updated = await ApprovalService.reject(approval.id)
         assert approval.status == "rejected"
-        assert updated.status == "cancelled"
-        assert await _stock_of(main_item_id, branch_id) == 10  # released
+        assert updated.status == "placed"  # the order proceeds, gift withheld
+        assert await _stock_of(main_item_id, branch_id) == 8  # stock stays consumed
         assert await _gift_count(branch_id) == 0
     finally:
         await _cleanup(branch_id, customer)
@@ -278,3 +279,51 @@ async def test_reject_twice_conflicts():
             await ApprovalService.reject(approval.id)
     finally:
         await _cleanup(branch_id, customer)
+
+
+async def test_get_approval_status():
+    branch_id, main_item_id, _gift = await _make_branch()
+    customer = await _make_customer()
+    try:
+        order, _approval = await _pending(branch_id, main_item_id, customer)
+        assert await ApprovalService.get_approval_status(order.id) == "pending"
+        # A normal order has no approval, so no status.
+        normal = await OrderService.place_order(
+            customer, branch_id, "dine_in", [{"menu_item_id": main_item_id, "quantity": 1}]
+        )
+        assert await ApprovalService.get_approval_status(normal.id) is None
+    finally:
+        await _cleanup(branch_id, customer)
+
+
+async def test_cancel_order_restores_stock_and_is_idempotent():
+    branch_id, main_item_id, _gift = await _make_branch(main_stock=10)
+    customer = await _make_customer()
+    try:
+        order = await OrderService.place_order(
+            customer, branch_id, "dine_in", [{"menu_item_id": main_item_id, "quantity": 2}]
+        )
+        assert await _stock_of(main_item_id, branch_id) == 8
+        cancelled = await OrderService.cancel_order(order.id, customer)
+        assert cancelled.status == "cancelled"
+        assert await _stock_of(main_item_id, branch_id) == 10
+        # Cancelling again is a no-op, not an error.
+        again = await OrderService.cancel_order(order.id, customer)
+        assert again.status == "cancelled"
+        assert await _stock_of(main_item_id, branch_id) == 10
+    finally:
+        await _cleanup(branch_id, customer)
+
+
+async def test_cancel_order_foreign_customer_forbidden():
+    branch_id, main_item_id, _gift = await _make_branch()
+    owner = await _make_customer()
+    intruder = await _make_customer()
+    try:
+        order = await OrderService.place_order(
+            owner, branch_id, "dine_in", [{"menu_item_id": main_item_id, "quantity": 1}]
+        )
+        with pytest.raises(ForbiddenError):
+            await OrderService.cancel_order(order.id, intruder)
+    finally:
+        await _cleanup(branch_id, owner, intruder)

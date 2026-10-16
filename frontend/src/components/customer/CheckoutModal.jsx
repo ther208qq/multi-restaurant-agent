@@ -25,6 +25,7 @@ export default function CheckoutModal({ isOpen, onClose, branch, items, onOrderP
   const [error, setError] = useState('');
   const [previewing, setPreviewing] = useState(false);
   const [placing, setPlacing] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
   const [placed, setPlaced] = useState(null);
 
   useEffect(() => {
@@ -129,6 +130,21 @@ export default function CheckoutModal({ isOpen, onClose, branch, items, onOrderP
     }
   };
 
+  // The customer can withdraw an order after a gift request was declined.
+  const handleCancelOrder = async () => {
+    if (!placed) return;
+    setCancelling(true);
+    setError('');
+    try {
+      const updated = await api.cancelOrder(placed.id);
+      setPlaced(updated);
+    } catch (err) {
+      setError(err.message || '取消订单失败，请重试。');
+    } finally {
+      setCancelling(false);
+    }
+  };
+
 
   return (
     <div className="modal-overlay" onClick={handleClose}>
@@ -172,15 +188,35 @@ export default function CheckoutModal({ isOpen, onClose, branch, items, onOrderP
               <XCircle size={48} style={{ color: '#b91c1c' }} />
               <div>
                 <p style={{ fontWeight: 700, color: 'var(--secondary)', fontSize: '1.05rem' }}>
-                  订单 #{placed.id} 未通过审批
+                  订单 #{placed.id} 已取消
                 </p>
                 <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', marginTop: '4px' }}>
-                  赠品请求未被批准，订单已取消、库存已释放。您可以调整备注后重新下单。
+                  该订单已取消，相关库存已释放。
                 </p>
               </div>
               <button className="btn-primary" onClick={onOrderPlaced}>
                 知道了
               </button>
+            </div>
+          ) : placed.approval_status === 'rejected' ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', alignItems: 'center', textAlign: 'center', padding: '1rem 0' }}>
+              <XCircle size={48} style={{ color: '#b45309' }} />
+              <div>
+                <p style={{ fontWeight: 700, color: 'var(--secondary)', fontSize: '1.05rem' }}>
+                  赠品请求未通过，订单已正常下单
+                </p>
+                <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', marginTop: '4px' }}>
+                  订单 #{placed.id} 已提交，合计 ${Number(placed.total_amount).toFixed(2)}，本次不附赠赠品。如不再需要，可取消订单。
+                </p>
+              </div>
+              <div style={{ display: 'flex', gap: '8px', marginTop: '0.5rem' }}>
+                <button className="btn-outline" style={{ color: '#ef4444' }} disabled={cancelling} onClick={handleCancelOrder}>
+                  {cancelling ? '正在取消…' : '取消订单'}
+                </button>
+                <button className="btn-primary" onClick={onOrderPlaced}>
+                  知道了
+                </button>
+              </div>
             </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', alignItems: 'center', textAlign: 'center', padding: '1rem 0' }}>
@@ -190,7 +226,8 @@ export default function CheckoutModal({ isOpen, onClose, branch, items, onOrderP
                   订单 #{placed.id} 已提交
                 </p>
                 <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', marginTop: '4px' }}>
-                  门店确认后即开始准备，合计 ${Number(placed.total_amount).toFixed(2)}。
+                  门店确认后即开始准备，合计 ${Number(placed.total_amount).toFixed(2)}
+                  {placed.approval_status === 'approved' ? '，赠品已附在订单上。' : '。'}
                 </p>
               </div>
               <div style={{ display: 'flex', gap: '8px', marginTop: '0.5rem' }}>

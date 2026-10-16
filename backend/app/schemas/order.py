@@ -129,6 +129,10 @@ class OrderResponse(BaseModel):
     # Set when this order is gated for manager approval (AgentFeatures §5): the
     # id of the ``OrderApproval`` the manager acts on. ``None`` for a normal order.
     approval_id: Optional[int] = None
+    # The approval's outcome, surfaced to the customer so they can tell "gift
+    # approved" apart from "gift declined but order placed": ``pending`` /
+    # ``approved`` / ``rejected``, or ``None`` when the order has no approval.
+    approval_status: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -139,6 +143,7 @@ class OrderResponse(BaseModel):
         *,
         customer_name: Optional[str] = None,
         approval_id: Optional[int] = None,
+        approval_status: Optional[str] = None,
     ) -> "OrderResponse":
         """Build the response from an ``Order`` ORM object.
 
@@ -168,4 +173,5 @@ class OrderResponse(BaseModel):
             if customer_name is not None
             else (loaded_customer.name if loaded_customer else None),
             approval_id=approval_id,
+            approval_status=approval_status,
         )

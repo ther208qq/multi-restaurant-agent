@@ -567,6 +567,47 @@ class OrderService:
             return order
 
     @staticmethod
+    async def cancel_order(
+        order_id: int,
+        customer_id: int,
+        *,
+        session: Optional[AsyncSession] = None,
+    ) -> Order:
+        """Cancel one of the customer's own orders, releasing its stock.
+
+        Only the customer who placed the order may cancel it, and only while it is
+        still open (not delivered, not already cancelled). Idempotent: an
+        already-cancelled order is returned unchanged. The stock is released
+        exactly as a staff cancellation would.
+        """
+        async with transactional_session(session) as s:
+            order = await OrderRepo.get_order(s, order_id, with_items_menu_item=True)
+            if order is None:
+                raise NotFoundError(f'订单 #{order_id} 不存在。')
+            if order.customer_id != customer_id:
+                raise ForbiddenError('您只能操作自己的订单。')
+            if order.status == 'cancelled':
+                return order
+            if 'cancelled' not in ORDER_TRANSITIONS.get(order.status, frozenset()):
+                raise ValidationError(
+                    f'订单当前状态为「{_status_label(order.status)}」，无法取消。'
+                )
+            previous_status = order.status
+            await OrderService._apply_status_stock_effects(s, order, 'cancelled')
+            await OrderRepo.update_order_status(s, order, 'cancelled')
+            await AuditService.record(
+                s,
+                'order.status_changed',
+                entity_type='order',
+                entity_id=order.id,
+                branch_id=order.branch_id,
+                actor=await UserRepo.get_customer_by_id(s, customer_id),
+                details={'from': previous_status, 'to': 'cancelled', 'by': 'customer'},
+            )
+            await s.refresh(order)
+            return order
+
+    @staticmethod
     def _assert_kds_actionable(order: Order) -> None:
         """Reject a kitchen action on an order that is already over.
 

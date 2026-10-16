@@ -91,6 +91,26 @@ async def get_my_order(
     """
     await OrderService.get_customer_order(order_id, current_customer.id, session=db)
     full = await OrderService.get_order(order_id, session=db)
+    approval_status = await ApprovalService.get_approval_status(order_id, session=db)
+    return OrderResponse.from_order(
+        full, customer_name=current_customer.name, approval_status=approval_status
+    )
+
+
+@router.post("/orders/{order_id}/cancel", response_model=OrderResponse)
+async def cancel_my_order(
+    order_id: int,
+    current_customer: Customer = Depends(get_current_customer),
+    db: AsyncSession = Depends(get_db),
+):
+    """Cancel one of the current customer's own orders (stock released).
+
+    The customer decides whether to cancel -- e.g. after their gift request was
+    declined and they no longer want the order. Idempotent; ownership and the
+    "still cancellable" rule are enforced in the Service.
+    """
+    await OrderService.cancel_order(order_id, current_customer.id, session=db)
+    full = await OrderService.get_order(order_id, session=db)
     return OrderResponse.from_order(full, customer_name=current_customer.name)
 
 
@@ -128,7 +148,10 @@ async def create_my_order(
         full = await OrderService.get_order(order.id, session=db)
         response.status_code = status.HTTP_202_ACCEPTED
         return OrderResponse.from_order(
-            full, customer_name=current_customer.name, approval_id=approval.id
+            full,
+            customer_name=current_customer.name,
+            approval_id=approval.id,
+            approval_status="pending",
         )
 
     order = await OrderService.place_order(
