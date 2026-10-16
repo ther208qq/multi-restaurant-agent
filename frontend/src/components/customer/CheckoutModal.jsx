@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { api } from '../../api';
-import { X, AlertCircle, AlertTriangle, CheckCircle2 } from 'lucide-react';
+import { X, AlertCircle, AlertTriangle, CheckCircle2, Clock, XCircle } from 'lucide-react';
 
 const ORDER_TYPES = [
   { value: 'dine_in', label: '堂食' },
@@ -75,6 +75,26 @@ export default function CheckoutModal({ isOpen, onClose, branch, items, onOrderP
     };
   }, [isOpen, previewKey, branch, orderType]);
 
+  // While the order waits for a manager's approval (AgentFeatures §5), re-read it
+  // until the decision lands: 'placed' means the gift was approved, 'cancelled'
+  // means it was rejected. Polling stops the moment the status leaves pending.
+  useEffect(() => {
+    if (!isOpen || !placed || placed.status !== 'pending_approval') return;
+    let cancelled = false;
+    const timer = setInterval(async () => {
+      try {
+        const fresh = await api.getOrder(placed.id);
+        if (!cancelled) setPlaced(fresh);
+      } catch {
+        // Transient error -- keep polling; the next tick may succeed.
+      }
+    }, 4000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [isOpen, placed]);
+
   if (!isOpen) return null;
 
   const handleClose = () => {
@@ -127,25 +147,62 @@ export default function CheckoutModal({ isOpen, onClose, branch, items, onOrderP
         </div>
 
         {placed ? (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', alignItems: 'center', textAlign: 'center', padding: '1rem 0' }}>
-            <CheckCircle2 size={48} style={{ color: '#15803d' }} />
-            <div>
-              <p style={{ fontWeight: 700, color: 'var(--secondary)', fontSize: '1.05rem' }}>
-                订单 #{placed.id} 已提交
-              </p>
-              <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', marginTop: '4px' }}>
-                门店确认后即开始准备，合计 ${Number(placed.total_amount).toFixed(2)}。
-              </p>
+          placed.status === 'pending_approval' ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', alignItems: 'center', textAlign: 'center', padding: '1rem 0' }}>
+              <Clock size={48} style={{ color: '#d97706' }} />
+              <div>
+                <p style={{ fontWeight: 700, color: 'var(--secondary)', fontSize: '1.05rem' }}>
+                  订单 #{placed.id} 已提交，等待店长审批
+                </p>
+                <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', marginTop: '4px' }}>
+                  您的备注中包含赠品请求，需店长确认后生效。批准后赠品会附在订单上，本页面会自动刷新。
+                </p>
+              </div>
+              <div style={{ display: 'flex', gap: '8px', marginTop: '0.5rem' }}>
+                <button className="btn-outline" onClick={() => { onOrderPlaced(); onViewHistory(); }}>
+                  查看我的记录
+                </button>
+                <button className="btn-primary" onClick={onOrderPlaced}>
+                  关闭
+                </button>
+              </div>
             </div>
-            <div style={{ display: 'flex', gap: '8px', marginTop: '0.5rem' }}>
-              <button className="btn-outline" onClick={() => { onOrderPlaced(); onViewHistory(); }}>
-                查看我的记录
-              </button>
+          ) : placed.status === 'cancelled' ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', alignItems: 'center', textAlign: 'center', padding: '1rem 0' }}>
+              <XCircle size={48} style={{ color: '#b91c1c' }} />
+              <div>
+                <p style={{ fontWeight: 700, color: 'var(--secondary)', fontSize: '1.05rem' }}>
+                  订单 #{placed.id} 未通过审批
+                </p>
+                <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', marginTop: '4px' }}>
+                  赠品请求未被批准，订单已取消、库存已释放。您可以调整备注后重新下单。
+                </p>
+              </div>
               <button className="btn-primary" onClick={onOrderPlaced}>
-                继续浏览
+                知道了
               </button>
             </div>
-          </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', alignItems: 'center', textAlign: 'center', padding: '1rem 0' }}>
+              <CheckCircle2 size={48} style={{ color: '#15803d' }} />
+              <div>
+                <p style={{ fontWeight: 700, color: 'var(--secondary)', fontSize: '1.05rem' }}>
+                  订单 #{placed.id} 已提交
+                </p>
+                <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', marginTop: '4px' }}>
+                  门店确认后即开始准备，合计 ${Number(placed.total_amount).toFixed(2)}。
+                </p>
+              </div>
+              <div style={{ display: 'flex', gap: '8px', marginTop: '0.5rem' }}>
+                <button className="btn-outline" onClick={() => { onOrderPlaced(); onViewHistory(); }}>
+                  查看我的记录
+                </button>
+                <button className="btn-primary" onClick={onOrderPlaced}>
+                  继续浏览
+                </button>
+              </div>
+            </div>
+          )
         ) : (
           <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
             {error && (

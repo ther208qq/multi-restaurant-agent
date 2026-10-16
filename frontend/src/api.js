@@ -121,6 +121,11 @@ export const api = {
   getMyOrders: () => request('/orders/me', { method: 'GET' }, 'customer'),
   getMyReservations: () => request('/reservations/me', { method: 'GET' }, 'customer'),
 
+  // One of my orders by id -- the checkout page polls this while an order waits
+  // for manager approval (AgentFeatures feature 3), to see it become placed (or
+  // cancelled) without reloading the whole history.
+  getOrder: (orderId) => request(`/orders/${orderId}`, { method: 'GET' }, 'customer'),
+
   // Customer self-service ordering & booking
   previewOrder: (payload) =>
     request(
@@ -219,6 +224,30 @@ export const api = {
       },
       'staff'
     ),
+
+  // Staff Approvals (AgentFeatures feature 3): orders gated behind a manager's
+  // decision on a freebie request. Approve takes the manager's chosen gift_id;
+  // the server re-validates it against live stock.
+  getStaffApprovals: (branchId = null, status = null) => {
+    const params = new URLSearchParams();
+    if (branchId) params.append('branch_id', branchId);
+    if (status) params.append('status', status);
+    const qs = params.toString() ? `?${params.toString()}` : '';
+    return request(`/staff/approvals${qs}`, { method: 'GET' }, 'staff');
+  },
+
+  approveApproval: (approvalId, giftId) =>
+    request(
+      `/staff/approvals/${approvalId}/approve`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ gift_id: giftId }),
+      },
+      'staff'
+    ),
+
+  rejectApproval: (approvalId) =>
+    request(`/staff/approvals/${approvalId}/reject`, { method: 'POST' }, 'staff'),
 
   // Staff Reservations
   getStaffReservations: (branchId = null, status = null, date = null) => {
