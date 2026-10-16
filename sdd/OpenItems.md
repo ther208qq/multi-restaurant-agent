@@ -403,3 +403,52 @@ Task19「经营统计与异常处理」已实现：按门店和日期统计订�
 
 **遗留**：KDS 只由顾客侧工具驱动，**员工侧无 KDS 操作界面**（`cooking`/`done` 目前不会被推进——属模拟层口径，
 `AgentFeatures.md` 已定「不接真实 KDS」）；`GET /orders/me` 已带 `kds_status`，员工订单页（`OrdersManager`）暂未展示。
+
+---
+
+## 十五、Agent 嵌入业务流 · 功能3「HITL 审批」（2026-10-16 完成）
+
+按 `sdd/AgentFeatures.md` §5 实现（实现顺序 2 → 1 → 3 的最后一步）。分 **Task A–E** 逐项开发、逐项提交并各自跑测试：
+`daca295`(模型/状态) → `536a1d4`(Agent 意图+建议) → `c97045e`(Service) → `f1b6168`(路由/Schema) → `300aba4`(前端)。
+全量 **495 passed**（另 `test_cleanup_residual.py` 因引用已删除的 `routes/chat` 无法收集——**与本次无关，872b1e6 遗留**），
+`npm run build` 通过。
+
+**数据模型**：新表 `order_approvals`（`id, order_id, remark, intent, status(pending|approved|rejected), created_at`）；
+`orders.status` 增 **`pending_approval`** 值（`String(50)` 加枚举值，**无需 ALTER**；新表由 `create_all` 自动建）。
+流转矩阵：`pending_approval → {placed, cancelled}`；**无任何状态迁入** `pending_approval`（仅创建时置入），
+且 `KDS_ACTIONABLE` 显式排除它（待审批订单尚未进后厨）。
+
+**意图识别（Agent）**：`agent/approvals.py::classify_gift_intent` **LLM 优先**、规则兜底——`llm_client` 判
+`{"gift_request": true/false}`，异常/超时/不可解析时降级 `rule_based_gift_intent`。规则覆盖
+`免费/赠送/赠品/送我/不要钱/优惠券/券/白送` 等强线索 + 裸「送」；裸「送」命中 `送餐/送达/送到/配送/外卖/送货…`
+等**配送语义时不判赠品**（避免「送餐快一点」误触发）。空备注不调 LLM。
+
+**赠品建议（Agent）**：`build_gift_suggestion(branch_id)` **复用功能2 的 `gift_tools.get_surplus_inventory`**（→ `GiftService`），
+取「甜点/饮品、库存≥5、可售」过剩项按库存降序，返回 `{message, recommended_item, candidates}`；无可赠时 `None`。
+Agent 全程不碰 db，只经 Service-backed Tool。
+
+**Service（`ApprovalService`）**：`create_pending_order` 抽 `OrderService._place_order_in_session`（照功能2 的
+`_book_table_in_session` 范式），**同事务**落「pending 订单 + 审批记录」；`approve(approval_id, gift_id)`
+**重新校验 gift**（走 `issue_gift`：不存在/跨门店/不可售/库存不足 → 409）→ 追加 0 价赠品行 + 发券 + 订单转 `placed` +
+审批转 `approved`；`reject` 订单转 `cancelled` 并回滚库存。非 pending 再操作 → 409。
+
+**接口**：
+- `POST /orders`：备注意图门。命中赠品 → 订单落 `pending_approval` + 建审批，**202 + `approval_id`**（`OrderResponse` 增可选
+  `approval_id`）；否则 200 `placed`。**破坏性**：命中时状态码 200→202。
+- 新增 `GET /orders/{order_id}`（顾客鉴权，存在/归属校验）——§5「C 端轮询」所需（§6 接口表未列，本次补充）。
+- 新增 `GET /staff/approvals`（分支 scope，pending 时附 agent 的 live 赠品建议）、
+  `POST /staff/approvals/{id}/approve`（body `{gift_id}`）、`POST /staff/approvals/{id}/reject`。
+- 路由层直接 import `agent.approvals`（沿用功能2 `agent.offers` 先例；边界测试只禁 `routes→agent.tools`）。
+
+**审计**：新增 `approval.created` / `approval.approved` / `approval.rejected` 动作与 `approval` 实体（`labels.py`）。
+
+**前端**：`CheckoutModal` 命中 `pending_approval` 时进入「等待店长审批」态，轮询 `GET /orders/{id}` 直至
+`placed`（通过）/ `cancelled`（驳回）自动切换；`AdminLayout` 增「审批」页签 → 新组件 `ApprovalsManager`（10s 轮询，
+卡片展示顾客诉求/识别意图/订单行/Agent 赠品建议 + 赠品下拉 + [同意并赠送]/[拒绝]）。
+
+**遗留**：
+- 审批页赠品下拉**只列过剩候选**（agent 建议口径）；店长若想赠非过剩项，界面无入口（后端 `approve` 接受任意合法 `gift_id`）。
+- `POST /orders` 命中审批时 **不 dedup**（`deduplicate=False`，与顾客普通下单一致）——重复点击会产生两条待审批订单。
+- 审批通过后订单再被取消会回滚赠品行库存，但 `gifts` 券仍停留 `pending`（无 B 端 `redeemed` 流转，功能2 遗留同理）。
+- 员工订单页（`OrdersManager`）未展示 `pending_approval` 徽标（状态列会落到 `default` 分支显示原码）。
+
