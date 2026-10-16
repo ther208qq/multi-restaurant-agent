@@ -562,3 +562,34 @@ pgvector）。本项目是 **Python + FastAPI + LangGraph + 自建 `llm_client` 
 | 无限流 | JWT 有了，限流没有 | 若按文档口径收口，给 `/agent/*`、`/staff/approvals/*` 加限流（slowapi 或网关层） |
 | 清洁度 | 上面 3 条顺带发现 | 顺手可修（改注释 + 删/改写 `test_cleanup_residual.py`） |
 
+---
+
+## 十八、餐桌「停用」假显示修复（2026-10-16）
+
+**现象**：员工后台「门店与餐桌」页（`BranchTableManager.jsx`）里**每张桌子都显示「停用」且半透明**，
+点击徽标也切不动。
+
+**根因（前后端字段名漂移，非数据问题）**：该标志在后端全程叫 `is_available`
+（`models/branch.py:35`、`schemas/branch.py:11/22/26`、`seed.py:46-57`、`service/reservation.py:931`），
+前端这一页却写成了 `is_active`。后果三条：
+
+1. `t.is_active` 在响应里是 `undefined` → falsy → 三元永远落 `'停用'` 分支（`:162`），卡片也被打上
+   `opacity: 0.6`（`:149`）。**库里 12 张桌子 `is_available` 全为 `true`**（已查开发库确认）。
+2. 点徽标发的是 `PATCH {is_active: ...}`，而 `TableUpdate` 无此字段 → Pydantic v2 默认 `extra='ignore'`
+   **静默丢弃**（不是 422）→ `model_dump(exclude_unset=True)` 为空 → Service 什么都不改。
+3. 于是「停用餐桌」这个功能**实际不可用**：员工无法把待维修的桌子下线，而 `ReservationService`
+   确实会拒订 `is_available=False` 的桌子——UI 上"全都停用"、实际"一个都停不了"。
+   「添加餐桌」（`:60`）同样传错，只是被 `TableCreate` 的默认 `True` 兜住了。
+
+**修复**：前端向后端对齐，`BranchTableManager.jsx` 的 5 处 `is_active` → `is_available`
+（`:41`/`:60`/`:149`/`:158`/`:162`），与同目录 `MenuManager.jsx:82` 的写法一致。不动模型、不加迁移、
+不碰 `ReservationService`。`npm run build` 通过。
+
+**为何测试没抓到**：餐桌用例都直接打后端、断言 `is_available`；前端没有契约测试，字段名漂移只能肉眼发现。
+
+**同页新发现（本次未修，待定）**：`:172` 的 `{t.min_capacity} - {t.capacity} 人` 也是幻影字段——
+`public.tables` 只有 `id/branch_id/label/seating_area/capacity/is_available` 六列，
+`min_capacity` 在后端只是 `repo/branch.py:80` 的**入参名**（"能坐 N 人的最小桌"），不是列。
+所以①卡片渲染成「 - 4 人」，②「添加餐桌」弹窗里的**最小容量输入被后端静默忽略**。
+二选一：给 `tables` 真加一列（含迁移 + schema + 订位 best-fit 口径），或把该字段从 UI 撤掉。
+

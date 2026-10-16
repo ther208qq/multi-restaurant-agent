@@ -38,7 +38,7 @@ export default function BranchTableManager({ currentStaff, branches, onRefreshBr
   const handleToggleTable = async (table) => {
     try {
       await api.updateTable(table.id, {
-        is_active: !table.is_active,
+        is_available: !table.is_available,
       });
       await fetchTables();
     } catch (err) {
@@ -57,7 +57,7 @@ export default function BranchTableManager({ currentStaff, branches, onRefreshBr
         seating_area: newTableArea,
         capacity: Number(newTableCap),
         min_capacity: Number(newTableMinCap) || 1,
-        is_active: true,
+        is_available: true,
       });
       setIsAddTableOpen(false);
       setNewTableLabel('');
@@ -146,7 +146,7 @@ export default function BranchTableManager({ currentStaff, branches, onRefreshBr
               display: 'flex',
               flexDirection: 'column',
               gap: '0.5rem',
-              opacity: t.is_active ? 1 : 0.6,
+              opacity: t.is_available ? 1 : 0.6,
             }}
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -155,11 +155,11 @@ export default function BranchTableManager({ currentStaff, branches, onRefreshBr
               </span>
               <button
                 onClick={() => handleToggleTable(t)}
-                className={`badge ${t.is_active ? 'badge-success' : 'badge-danger'}`}
+                className={`badge ${t.is_available ? 'badge-success' : 'badge-danger'}`}
                 style={{ cursor: 'pointer' }}
                 title="点击切换餐桌可用状态"
               >
-                {t.is_active ? '可用' : '停用'}
+                {t.is_available ? '可用' : '停用'}
               </button>
             </div>
 
