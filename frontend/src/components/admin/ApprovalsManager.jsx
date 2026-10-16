@@ -53,7 +53,7 @@ export default function ApprovalsManager({ currentStaff, branches }) {
     run(a, () => api.approveApproval(a.id, Number(g)));
   };
   const reject = (a) => {
-    if (confirm('确定拒绝该赠品请求？订单将被取消。')) run(a, () => api.rejectApproval(a.id));
+    if (confirm('确定拒绝该赠品请求？订单将照常下单（不附赠品），顾客可自行取消。')) run(a, () => api.rejectApproval(a.id));
   };
 
   return (
@@ -122,7 +122,7 @@ export default function ApprovalsManager({ currentStaff, branches }) {
                       <Check size={14} /> 同意并赠送
                     </button>
                     <button className="btn-outline btn-sm" disabled={acting === a.id} onClick={() => reject(a)}>
-                      <XCircle size={14} /> 拒绝
+                      <XCircle size={14} /> 拒绝赠品
                     </button>
                   </div>
                 )}
