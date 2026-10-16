@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../../api';
-import { Plus, RefreshCw } from 'lucide-react';
+import { Pencil, Plus, RefreshCw, Trash2 } from 'lucide-react';
 
 export default function BranchTableManager({ currentStaff, branches, onRefreshBranches }) {
   const [selectedBranchId, setSelectedBranchId] = useState(
@@ -10,12 +10,14 @@ export default function BranchTableManager({ currentStaff, branches, onRefreshBr
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  // Add Table Modal State
-  const [isAddTableOpen, setIsAddTableOpen] = useState(false);
-  const [newTableLabel, setNewTableLabel] = useState('');
-  const [newTableArea, setNewTableArea] = useState('indoor');
-  const [newTableCap, setNewTableCap] = useState('4');
-  const [newTableMinCap, setNewTableMinCap] = useState('2');
+  // Table form state. One modal serves both jobs: ``editingTable`` is the row
+  // being renamed (null means we are adding a new one).
+  const [isFormOpen, setIsFormOpen] = useState(false);
+  const [editingTable, setEditingTable] = useState(null);
+  const [formLabel, setFormLabel] = useState('');
+  const [formArea, setFormArea] = useState('indoor');
+  const [formCap, setFormCap] = useState('4');
+  const [saving, setSaving] = useState(false);
 
   const fetchTables = async () => {
     setLoading(true);
@@ -46,25 +48,61 @@ export default function BranchTableManager({ currentStaff, branches, onRefreshBr
     }
   };
 
-  const handleCreateTable = async (e) => {
+  const openAddTable = () => {
+    setEditingTable(null);
+    setFormLabel('');
+    setFormArea('indoor');
+    setFormCap('4');
+    setError('');
+    setIsFormOpen(true);
+  };
+
+  const openEditTable = (table) => {
+    setEditingTable(table);
+    setFormLabel(table.label);
+    setFormArea(table.seating_area);
+    setFormCap(String(table.capacity));
+    setError('');
+    setIsFormOpen(true);
+  };
+
+  const handleSubmitTable = async (e) => {
     e.preventDefault();
-    if (!newTableLabel.trim()) return;
+    if (!formLabel.trim()) return;
+    setSaving(true);
     try {
-      const bId = currentStaff.branch_id || selectedBranchId;
-      await api.createTable({
-        branch_id: bId,
-        label: newTableLabel.trim(),
-        seating_area: newTableArea,
-        capacity: Number(newTableCap),
-        min_capacity: Number(newTableMinCap) || 1,
-        is_available: true,
-      });
-      setIsAddTableOpen(false);
-      setNewTableLabel('');
+      const payload = {
+        label: formLabel.trim(),
+        seating_area: formArea,
+        capacity: Number(formCap),
+      };
+      if (editingTable) {
+        await api.updateTable(editingTable.id, payload);
+      } else {
+        const bId = currentStaff.branch_id || selectedBranchId;
+        await api.createTable({ ...payload, branch_id: bId, is_available: true });
+      }
+      setIsFormOpen(false);
       await fetchTables();
       if (onRefreshBranches) onRefreshBranches();
     } catch (err) {
-      alert(`创建餐桌失败：${err.message}`);
+      alert(`${editingTable ? '保存' : '创建'}餐桌失败：${err.message}`);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDeleteTable = async (table) => {
+    if (!confirm(`确定删除餐桌 ${table.label}？删除后无法恢复。`)) return;
+    setError('');
+    try {
+      await api.deleteTable(table.id);
+      await fetchTables();
+    } catch (err) {
+      // A table that has ever been booked cannot be deleted (the server answers
+      // 409 and suggests disabling it instead) -- surface that here rather than
+      // in an alert, so the reason stays on screen.
+      setError(err.message);
     }
   };
 
@@ -118,7 +156,7 @@ export default function BranchTableManager({ currentStaff, branches, onRefreshBr
         </div>
 
         <div style={{ display: 'flex', gap: '8px' }}>
-          <button onClick={() => setIsAddTableOpen(true)} className="btn-primary btn-sm">
+          <button onClick={openAddTable} className="btn-primary btn-sm">
             <Plus size={14} /> 添加餐桌
           </button>
           <button onClick={fetchTables} className="btn-outline btn-sm">
@@ -169,27 +207,55 @@ export default function BranchTableManager({ currentStaff, branches, onRefreshBr
                 <span>{AREA_LABELS[t.seating_area] || t.seating_area}</span>
               </div>
               <div>
-                <strong>容纳人数：</strong> {t.min_capacity} - {t.capacity} 人
+                <strong>容纳人数：</strong> {t.capacity} 人
               </div>
+            </div>
+
+            <div
+              style={{
+                marginTop: 'auto',
+                paddingTop: '10px',
+                borderTop: '1px solid #f1f5f9',
+                display: 'flex',
+                justifyContent: 'flex-end',
+                gap: '8px',
+              }}
+            >
+              <button
+                onClick={() => openEditTable(t)}
+                className="btn-outline btn-sm"
+                style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+              >
+                <Pencil size={12} /> 编辑
+              </button>
+              <button
+                onClick={() => handleDeleteTable(t)}
+                className="btn-danger btn-sm"
+                style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+              >
+                <Trash2 size={12} /> 删除
+              </button>
             </div>
           </div>
         ))}
       </div>
 
-      {/* Add Table Modal */}
-      {isAddTableOpen && (
-        <div className="modal-overlay" onClick={() => setIsAddTableOpen(false)}>
+      {/* Add / Edit Table Modal */}
+      {isFormOpen && (
+        <div className="modal-overlay" onClick={() => setIsFormOpen(false)}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-            <h3 style={{ fontSize: '1.1rem', fontWeight: 700, marginBottom: '1rem' }}>为门店添加餐桌</h3>
-            <form onSubmit={handleCreateTable} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            <h3 style={{ fontSize: '1.1rem', fontWeight: 700, marginBottom: '1rem' }}>
+              {editingTable ? `编辑餐桌 ${editingTable.label}` : '为门店添加餐桌'}
+            </h3>
+            <form onSubmit={handleSubmitTable} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
               <div>
                 <label style={{ fontSize: '0.8rem', fontWeight: 600 }}>餐桌编号</label>
                 <input
                   type="text"
                   required
                   placeholder="例如：T12 或 卡座-4"
-                  value={newTableLabel}
-                  onChange={(e) => setNewTableLabel(e.target.value)}
+                  value={formLabel}
+                  onChange={(e) => setFormLabel(e.target.value)}
                   style={{ width: '100%', padding: '8px 10px', borderRadius: '6px', border: '1px solid var(--surface-border)' }}
                 />
               </div>
@@ -197,8 +263,8 @@ export default function BranchTableManager({ currentStaff, branches, onRefreshBr
               <div>
                 <label style={{ fontSize: '0.8rem', fontWeight: 600 }}>用餐区</label>
                 <select
-                  value={newTableArea}
-                  onChange={(e) => setNewTableArea(e.target.value)}
+                  value={formArea}
+                  onChange={(e) => setFormArea(e.target.value)}
                   style={{ width: '100%', padding: '8px 10px', borderRadius: '6px', border: '1px solid var(--surface-border)' }}
                 >
                   <option value="indoor">室内</option>
@@ -207,37 +273,24 @@ export default function BranchTableManager({ currentStaff, branches, onRefreshBr
                 </select>
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-                <div>
-                  <label style={{ fontSize: '0.8rem', fontWeight: 600 }}>最大容量</label>
-                  <input
-                    type="number"
-                    min="1"
-                    required
-                    value={newTableCap}
-                    onChange={(e) => setNewTableCap(e.target.value)}
-                    style={{ width: '100%', padding: '8px 10px', borderRadius: '6px', border: '1px solid var(--surface-border)' }}
-                  />
-                </div>
-                <div>
-                  <label style={{ fontSize: '0.8rem', fontWeight: 600 }}>最小容量</label>
-                  <input
-                    type="number"
-                    min="1"
-                    required
-                    value={newTableMinCap}
-                    onChange={(e) => setNewTableMinCap(e.target.value)}
-                    style={{ width: '100%', padding: '8px 10px', borderRadius: '6px', border: '1px solid var(--surface-border)' }}
-                  />
-                </div>
+              <div>
+                <label style={{ fontSize: '0.8rem', fontWeight: 600 }}>容纳人数</label>
+                <input
+                  type="number"
+                  min="1"
+                  required
+                  value={formCap}
+                  onChange={(e) => setFormCap(e.target.value)}
+                  style={{ width: '100%', padding: '8px 10px', borderRadius: '6px', border: '1px solid var(--surface-border)' }}
+                />
               </div>
 
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '8px' }}>
-                <button type="button" onClick={() => setIsAddTableOpen(false)} className="btn-secondary btn-sm">
+                <button type="button" onClick={() => setIsFormOpen(false)} className="btn-secondary btn-sm">
                   取消
                 </button>
-                <button type="submit" className="btn-primary btn-sm">
-                  添加餐桌
+                <button type="submit" disabled={saving} className="btn-primary btn-sm">
+                  {editingTable ? '保存' : '添加餐桌'}
                 </button>
               </div>
             </form>

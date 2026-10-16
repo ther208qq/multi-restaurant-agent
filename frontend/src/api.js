@@ -77,8 +77,14 @@ async function request(endpoint, options = {}, authType = null) {
   });
 
   let data = null;
+  // 204/205 have no body by spec, but FastAPI still stamps them with
+  // ``content-type: application/json`` (Starlette writes the media type and
+  // skips content-length). Trusting the header alone would run JSON.parse("")
+  // and throw "Unexpected end of JSON input" on an otherwise successful DELETE.
   const contentType = response.headers.get('content-type');
-  if (contentType && contentType.includes('application/json')) {
+  if (response.status === 204 || response.status === 205) {
+    data = null;
+  } else if (contentType && contentType.includes('application/json')) {
     data = await response.json();
   } else {
     data = await response.text();
@@ -421,4 +427,7 @@ export const api = {
       },
       'staff'
     ),
+
+  deleteTable: (tableId) =>
+    request(`/staff/branches/tables/${tableId}`, { method: 'DELETE' }, 'staff'),
 };

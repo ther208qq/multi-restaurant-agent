@@ -9,11 +9,12 @@ from typing import Any, Dict, List, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.database import transactional_session
-from backend.app.exceptions import ForbiddenError, NotFoundError
+from backend.app.exceptions import ConflictError, ForbiddenError, NotFoundError
 from backend.app.models.branch import Branch, Table
 from backend.app.models.user import StaffUser
 from backend.app.opening_hours import parse_opening_hours
 from backend.app.repo.branch import BranchRepo
+from backend.app.repo.reservation import ReservationRepo
 from backend.app.service.audit import AuditService
 
 
@@ -26,6 +27,26 @@ def _check_opening_hours(values: Dict[str, Any]) -> None:
     value = values.get("opening_hours")
     if value is not None:
         parse_opening_hours(value)
+
+
+async def _reject_duplicate_label(
+    session: AsyncSession,
+    branch_id: int,
+    label: str,
+    *,
+    exclude_id: Optional[int] = None,
+) -> None:
+    """Refuse a second table with the same name inside one branch.
+
+    The label is what staff and customers call a table, so two of them in the
+    same branch are indistinguishable -- and the auto-picker would treat both as
+    valid candidates for one booking. Names may still repeat *across* branches.
+    """
+    existing = await BranchRepo.get_table_by_label(
+        session, branch_id, label, exclude_id=exclude_id
+    )
+    if existing is not None:
+        raise ConflictError(f"该门店已存在名为「{label}」的餐桌，请换一个编号。")
 
 
 class BranchService:
@@ -125,6 +146,7 @@ class BranchService:
         if staff.branch_id and values.get("branch_id") != staff.branch_id:
             raise ForbiddenError("您没有权限访问该门店。")
         async with transactional_session(session) as s:
+            await _reject_duplicate_label(s, values["branch_id"], values["label"])
             table = await BranchRepo.create_table(s, values)
             await AuditService.record(
                 s,
@@ -155,6 +177,14 @@ class BranchService:
                 raise NotFoundError("餐桌不存在。")
             if staff.branch_id and table.branch_id != staff.branch_id:
                 raise ForbiddenError("您没有权限访问该门店。")
+            # Only a label that actually changes needs checking: the frontend
+            # always sends the current label back, and a branch that already
+            # holds duplicates (pre-guard rows) must still be editable.
+            new_label = values.get("label")
+            if new_label is not None and new_label != table.label:
+                await _reject_duplicate_label(
+                    s, table.branch_id, new_label, exclude_id=table_id
+                )
             before = {key: getattr(table, key) for key in values if hasattr(table, key)}
             updated = await BranchRepo.update_table(s, table, values)
             if before:
@@ -168,6 +198,53 @@ class BranchService:
                     details={"changes": {key: [before[key], getattr(updated, key)] for key in before}},
                 )
             return updated
+
+    @staticmethod
+    async def delete_table(
+        staff: StaffUser,
+        table_id: int,
+        *,
+        session: Optional[AsyncSession] = None,
+    ) -> None:
+        """Remove a table outright, unless it has bookings to its name.
+
+        The ``reservations.table_id`` FK is ``ON DELETE CASCADE``, so a plain
+        delete would silently take the table's booking history with it (and a
+        completed booking is part of the record, not clutter). A table that has
+        ever been booked is therefore refused with a 409 that points at the
+        non-destructive alternative -- disabling it -- instead.
+        """
+        async with transactional_session(session) as s:
+            table = await BranchRepo.get_table(s, table_id)
+            if table is None:
+                raise NotFoundError("餐桌不存在。")
+            if staff.branch_id and table.branch_id != staff.branch_id:
+                raise ForbiddenError("您没有权限访问该门店。")
+
+            bookings = await ReservationRepo.count_by_table(s, table_id)
+            if bookings:
+                raise ConflictError(
+                    f"餐桌 {table.label} 有 {bookings} 条预订记录，无法删除；"
+                    "如需下线请改用「停用」。"
+                )
+
+            # Snapshot before the delete: after the flush the instance is gone.
+            details = {
+                "label": table.label,
+                "seating_area": table.seating_area,
+                "capacity": table.capacity,
+            }
+            branch_id = table.branch_id
+            await BranchRepo.delete_table(s, table)
+            await AuditService.record(
+                s,
+                "table.deleted",
+                entity_type="table",
+                entity_id=table_id,
+                branch_id=branch_id,
+                actor=staff,
+                details=details,
+            )
 
 
 __all__ = ["BranchService"]

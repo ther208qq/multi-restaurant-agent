@@ -4,13 +4,16 @@ These verify the migrated API layer still behaves as before: same shapes, same
 status codes, with domain exceptions mapped to HTTP by the global handlers.
 """
 
+from datetime import datetime, timedelta, timezone
+
 import pytest
-from sqlalchemy import delete
+from sqlalchemy import delete, func
 
 from backend.app.auth.security import create_access_token
 from backend.app.database import transactional_session
 from backend.app.models.branch import Table
 from backend.app.models.menu import MenuCategory
+from backend.app.models.reservation import Reservation
 from backend.app.models.user import StaffUser
 from backend.app.service.menu import MenuService
 
@@ -116,6 +119,215 @@ async def test_staff_create_table_forbidden_for_other_branch(async_client):
         headers=_staff_headers(2, role="staff"),
     )
     assert resp.status_code == 403
+
+
+async def test_staff_update_table_success(async_client, staff_auth_headers):
+    created = await async_client.post(
+        "/api/staff/branches/tables",
+        json={"branch_id": 1, "label": "__route_upd", "seating_area": "indoor", "capacity": 2},
+        headers=staff_auth_headers,
+    )
+    assert created.status_code == 200
+    table_id = created.json()["id"]
+
+    patched = await async_client.patch(
+        f"/api/staff/branches/tables/{table_id}",
+        json={"label": "__route_upd2", "capacity": 6, "seating_area": "rooftop"},
+        headers=staff_auth_headers,
+    )
+    assert patched.status_code == 200
+    assert patched.json()["label"] == "__route_upd2"
+    assert patched.json()["capacity"] == 6
+    assert patched.json()["seating_area"] == "rooftop"
+
+    listed = await async_client.get(
+        "/api/staff/branches/tables", headers=staff_auth_headers
+    )
+    row = next(t for t in listed.json() if t["id"] == table_id)
+    assert row["label"] == "__route_upd2"
+    assert row["capacity"] == 6
+
+    async with transactional_session() as session:
+        await session.execute(delete(Table).where(Table.id == table_id))
+
+
+async def test_staff_create_table_duplicate_label_is_refused(async_client, staff_auth_headers):
+    """Two tables sharing a name in one branch are indistinguishable to staff."""
+    created = await async_client.post(
+        "/api/staff/branches/tables",
+        json={"branch_id": 1, "label": "__route_dup", "seating_area": "indoor", "capacity": 4},
+        headers=staff_auth_headers,
+    )
+    assert created.status_code == 200
+    table_id = created.json()["id"]
+
+    second = await async_client.post(
+        "/api/staff/branches/tables",
+        json={"branch_id": 1, "label": "__route_dup", "seating_area": "outdoor", "capacity": 6},
+        headers=staff_auth_headers,
+    )
+    assert second.status_code == 409
+    assert "__route_dup" in second.json()["detail"]
+
+    async with transactional_session() as session:
+        await session.execute(delete(Table).where(Table.id == table_id))
+
+
+async def test_staff_create_table_same_label_other_branch_allowed(async_client):
+    """The name only has to be unique inside its branch -- the seed reuses R1."""
+    ids = []
+    for branch_id in (1, 2):
+        resp = await async_client.post(
+            "/api/staff/branches/tables",
+            json={
+                "branch_id": branch_id,
+                "label": "__route_dup_x",
+                "seating_area": "indoor",
+                "capacity": 2,
+            },
+            headers=_staff_headers(1, role="admin"),
+        )
+        assert resp.status_code == 200, resp.text
+        ids.append(resp.json()["id"])
+
+    async with transactional_session() as session:
+        await session.execute(delete(Table).where(Table.id.in_(ids)))
+
+
+async def test_staff_update_table_duplicate_label_is_refused(async_client, staff_auth_headers):
+    """Renaming onto a taken label is a 409; re-sending one's own label is not."""
+    first = await async_client.post(
+        "/api/staff/branches/tables",
+        json={"branch_id": 1, "label": "__route_dup_a", "seating_area": "indoor", "capacity": 2},
+        headers=staff_auth_headers,
+    )
+    second = await async_client.post(
+        "/api/staff/branches/tables",
+        json={"branch_id": 1, "label": "__route_dup_b", "seating_area": "indoor", "capacity": 2},
+        headers=staff_auth_headers,
+    )
+    assert first.status_code == 200 and second.status_code == 200
+    a_id, b_id = first.json()["id"], second.json()["id"]
+
+    clash = await async_client.patch(
+        f"/api/staff/branches/tables/{b_id}",
+        json={"label": "__route_dup_a"},
+        headers=staff_auth_headers,
+    )
+    assert clash.status_code == 409
+    assert "__route_dup_a" in clash.json()["detail"]
+
+    # B keeps its own name, and editing another field while echoing that name
+    # back (which is what the admin page does) still goes through -- otherwise a
+    # branch that already held duplicates would be frozen.
+    kept = await async_client.patch(
+        f"/api/staff/branches/tables/{b_id}",
+        json={"label": "__route_dup_b", "capacity": 8},
+        headers=staff_auth_headers,
+    )
+    assert kept.status_code == 200
+    assert kept.json()["label"] == "__route_dup_b"
+    assert kept.json()["capacity"] == 8
+
+    async with transactional_session() as session:
+        await session.execute(delete(Table).where(Table.id.in_([a_id, b_id])))
+
+
+async def test_staff_delete_table_success(async_client, staff_auth_headers):
+    """A table nothing ever booked is removed outright."""
+    created = await async_client.post(
+        "/api/staff/branches/tables",
+        json={"branch_id": 1, "label": "__route_del", "seating_area": "indoor", "capacity": 4},
+        headers=staff_auth_headers,
+    )
+    assert created.status_code == 200
+    table_id = created.json()["id"]
+
+    deleted = await async_client.delete(
+        f"/api/staff/branches/tables/{table_id}", headers=staff_auth_headers
+    )
+    assert deleted.status_code == 204
+
+    listed = await async_client.get(
+        "/api/staff/branches/tables", headers=staff_auth_headers
+    )
+    assert all(t["id"] != table_id for t in listed.json())
+
+    # Gone for good: a second attempt is a 404, not another 204.
+    again = await async_client.delete(
+        f"/api/staff/branches/tables/{table_id}", headers=staff_auth_headers
+    )
+    assert again.status_code == 404
+
+
+async def test_staff_delete_table_with_bookings_is_refused(async_client, staff_auth_headers):
+    """A booked table is protected -- the FK cascades, so deleting erases history."""
+    created = await async_client.post(
+        "/api/staff/branches/tables",
+        json={"branch_id": 1, "label": "__route_del_booked", "seating_area": "indoor", "capacity": 2},
+        headers=staff_auth_headers,
+    )
+    assert created.status_code == 200
+    table_id = created.json()["id"]
+
+    start = datetime.now(timezone.utc) + timedelta(days=30)
+    end = start + timedelta(minutes=90)
+    async with transactional_session() as session:
+        session.add(
+            Reservation(
+                customer_id=1,
+                branch_id=1,
+                table_id=table_id,
+                party_size=2,
+                start_time=start,
+                end_time=end,
+                duration_minutes=90,
+                status="confirmed",
+                booking_window=func.tstzrange(start, end, "[)"),
+            )
+        )
+
+    refused = await async_client.delete(
+        f"/api/staff/branches/tables/{table_id}", headers=staff_auth_headers
+    )
+    assert refused.status_code == 409
+    assert "停用" in refused.json()["detail"]
+
+    listed = await async_client.get(
+        "/api/staff/branches/tables", headers=staff_auth_headers
+    )
+    assert any(t["id"] == table_id for t in listed.json())
+
+    # Cleanup: drop the booking, then the table (the API refuses while it exists).
+    async with transactional_session() as session:
+        await session.execute(delete(Reservation).where(Reservation.table_id == table_id))
+        await session.execute(delete(Table).where(Table.id == table_id))
+
+
+async def test_staff_delete_table_not_found(async_client, staff_auth_headers):
+    resp = await async_client.delete(
+        "/api/staff/branches/tables/999999", headers=staff_auth_headers
+    )
+    assert resp.status_code == 404
+
+
+async def test_staff_delete_table_forbidden_for_other_branch(async_client):
+    """A branch-bound staff member may not delete another branch's table."""
+    listed = await async_client.get(
+        "/api/staff/branches/tables?branch_id=2", headers=_staff_headers(1, role="admin")
+    )
+    other_branch_table = listed.json()[0]["id"]
+
+    resp = await async_client.delete(
+        f"/api/staff/branches/tables/{other_branch_table}",
+        headers=_staff_headers(2, role="staff"),  # scoped to branch 1
+    )
+    assert resp.status_code == 403
+
+
+async def test_staff_delete_table_requires_auth(async_client):
+    resp = await async_client.delete("/api/staff/branches/tables/1")
+    assert resp.status_code == 401
 
 
 # --------------------------------------------------------------------------- #

@@ -179,6 +179,21 @@ input, select, textarea {
   background: #f8fafc;
 }
 
+/* Irreversible actions (delete). Same shape as .btn-outline, but tinted with
+   the .badge-danger palette so it reads as destructive next to a benign
+   "edit" button instead of looking like a second copy of it. */
+.btn-danger {
+  border: 1px solid #fecaca;
+  background: #fef2f2;
+  color: #b91c1c;
+  padding: 6px 12px;
+  border-radius: var(--radius-md);
+  font-weight: 500;
+}
+.btn-danger:hover {
+  background: #fee2e2;
+}
+
 /* Chat Widget Container */
 .chat-page {
   flex: 1;

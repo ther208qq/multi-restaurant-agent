@@ -2,7 +2,7 @@
 
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.auth.security import get_current_staff, require_admin
@@ -89,3 +89,17 @@ async def update_table(
     return await BranchService.update_table(
         current_staff, table_id, payload.model_dump(exclude_unset=True), session=db
     )
+
+
+@router.delete("/tables/{table_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_table(
+    table_id: int,
+    current_staff: StaffUser = Depends(get_current_staff),
+    db: AsyncSession = Depends(get_db),
+):
+    """Remove a table (no content on success).
+
+    Refused with a 409 when the table has bookings: the ``reservations`` FK
+    cascades, so deleting it would erase that history -- disable it instead.
+    """
+    await BranchService.delete_table(current_staff, table_id, session=db)

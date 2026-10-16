@@ -602,3 +602,74 @@ WHERE status IN ('pending','confirmed','seated')`，`btree_gist 1.7` 已安装�
 顺带清掉同一文件里 5 个未使用的 lucide import（`MapPin`/`Layers`/`Check`/`X`/`ShieldAlert`，只剩 `Plus`/`RefreshCw` 在用）。
 `npm run build` 通过。
 
+---
+
+## 十九、餐桌 CRUD 补齐（编辑 / 删除）（2026-10-16）
+
+**起因**：员工后台「门店与餐桌」页只有「列餐桌 / 添加餐桌 / 点徽标切可用-停用」三件事——**没有编辑按钮，也没有删除按钮**；
+后端也**没有任何 DELETE 接口**（全项目 `@router.delete` 零命中）。`sdd/Capabilities.md:97` 原先把「餐桌无删除接口」记为已知限制。
+
+**两项决策（本轮确认）**
+
+| 决策点 | 结论 |
+|---|---|
+| 删除语义 | **硬删 + 前置拦截**：该桌有**任何**预订记录 → `409` 并提示改用「停用」；无记录才真删。不加列、不迁移 |
+| `min_capacity` | **从 UI 撤掉**（§十八 的幻影字段） |
+
+**为什么删除必须拦**：`reservations.table_id` 是 `ON DELETE CASCADE`（`models/reservation.py:38`）——硬删会连带抹掉该桌的
+预订历史（**已完成的也算**），而 `audit_logs` 只存 `entity_id`，删完就成悬空引用。所以 Service 先过
+`ReservationRepo.count_by_table`（**不过滤状态**，历史行也计入），>0 即 `ConflictError`（→409，`error_handlers.py:29`）。
+
+**后端**：`ReservationRepo.count_by_table`（新增）→ `BranchRepo.delete_table`（新增）→ `BranchService.delete_table`
+（`404` 不存在 / `403` 跨门店 / `409` 有预订 三道门，**同事务**写审计 `table.deleted`；label 等快照必须在删之前取，
+删完就读不到了）→ `DELETE /staff/branches/tables/{id}` 返 **204 无 body**。
+- 204 是本项目第一个无 body 响应。**plan 阶段这里判断错了**：当时以为「无 `content-type` → 走 `response.text()`」，
+  实际 FastAPI 的 204 **仍然带着 `content-type: application/json`**（Starlette 会写上媒体类型，只是按规范去掉
+  `content-length` 与 body）。于是 `request()` 对空 body 执行 `JSON.parse("")` → 抛 `Unexpected end of JSON input`；
+  而这个异常在 `request()` 里就抛了，`handleDeleteTable` 紧随其后的 `fetchTables()` **根本执行不到**——
+  表现为「删除其实成功了，但列表不刷新、还弹一句英文报错」，一个根因两个症状。
+  修法：`request()` 对 **204 / 205 直接返回 `null`**（HTTP 规范：这两个状态码按定义没有 body，客户端本就不该去解析）。
+- 权限沿用 `get_current_staff`（与本页 create/update 一致，不用 `require_admin`，否则同一页三个按钮权限不一），
+  branch-scope 校验仍在 Service。
+- `labels.py` 补 `"table.deleted": "删除餐桌"`（操作日志页自动显示）。
+
+**前端**：
+- `api.js` 补 `deleteTable`（首个 DELETE 调用）。
+- `index.css` 新增 `.btn-danger`——此前只有 `.badge-danger`，**没有红色按钮样式**；删除按钮若与旁边无害的「编辑」共用
+  `btn-outline`，两者会长得一模一样。取 `.badge-danger` 同一套配色（`#fef2f2` / `#b91c1c`）。
+- `BranchTableManager.jsx`：卡片底部加「编辑 / 删除」操作行（`marginTop:auto` + 上边框，保证卡片底部对齐）；
+  **新增与编辑共用同一个弹窗**（`editingTable` 为 `null` 即新建），避免复制约 60 行 JSX；
+  删除走 `confirm()`（house 风格：`OrdersManager.jsx:324`、`ReservationsManager.jsx:278`、`ApprovalsManager.jsx:56`）；
+  `409` 文案走页面顶部 `setError` 横幅而非 `alert`——这个理由需要留在屏幕上。
+- 顺带把 `min_capacity` 从卡片（原「- 4 人」）与新增/编辑表单里撤掉，卡片改显示「容纳人数：N 人」。
+
+**追加：餐桌重名护栏（同日，冒烟时实测触发）**
+
+真机试用时发现市中心小馆有**两张 T12**（id 425 / 427，同为 indoor、4 人、可用，完全一样）。查证：
+- T12 **不在种子里**（`seed.py:44-58` 只有 T1/T2/T3/P1/P2/R1 与 U1/U2/O1/R1/R2），是两次
+  `POST /staff/branches/tables` 建出来的；
+- 两个 id **不连号**（中间缺 426），所以**不是一次请求被重发**（那会连号 425/426）；426 是被一次未落库的插入
+  消耗掉的序列值——PostgreSQL 序列号**回滚不退还**。即：两次独立的 POST；
+- id 已经跑到 400 多，是因为测试隔离（2026-10-12）**之前**测试直接往 dev 库写过大量数据，把序列推高了。
+  历史遗留，不影响使用。
+
+**根因**：没有任何一层拦重名——`tables` 表没有 `UniqueConstraint`（`init_db` 只跑 `create_all`），
+`BranchService.create_table` 不查重，前端也没有护栏。于是重名被静默接受。而重名餐桌对员工和顾客是
+**不可区分**的，自动选桌（`repo/branch.py` 的 `list_candidate_tables` 按容量升序挑候选）还会把两张同时
+当作候选，同一个「T12」可能落到两张不同的物理桌。
+- 注意 `R1` 在种子里**本来就出现两次**——但分属两个门店，那是合法的。所以约束只能作用于**同一门店内**。
+
+**修法**：`BranchRepo.get_table_by_label`（新增）→ `BranchService._reject_duplicate_label`（新增），
+同门店同名即 `ConflictError` → 409「该门店已存在名为「X」的餐桌，请换一个编号。」两个细节是必需的：
+- 查询用 `.first()` 而**不是** `scalar_one_or_none()`：库里**已经存在**重名行，后者会抛 `MultipleResultsFound`——
+  一个用来防重名的查询，不能在已经有重名的库上先自己炸掉。
+- `update_table` 只在 **label 真的变了**（`new_label != table.label`）时才校验：前端保存编辑时总把当前 label
+  原样回传（`payload` 里始终带 `label`），若无条件校验，那么对一张已有重名的桌改容量/用餐区（不动名字）
+  也会被判 409——等于把存在重名的门店**锁死**，连修都修不了。同理 `create_table` 里不比较、
+  `update_table` 里排除自身（`exclude_id`）。
+
+**测试**：`test_staff_create_table_duplicate_label_is_refused`（同门店重名 → 409）、
+`test_staff_create_table_same_label_other_branch_allowed`（跨门店同名 → 200）、
+`test_staff_update_table_duplicate_label_is_refused`（改名撞车 → 409；**回传自身 label 同时改容量 → 200**，
+这条专门覆盖上面那个边界）。
+

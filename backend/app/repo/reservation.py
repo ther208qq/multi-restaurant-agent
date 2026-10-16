@@ -192,6 +192,20 @@ class ReservationRepo:
         return res.scalar_one_or_none() is not None
 
     @staticmethod
+    async def count_by_table(session: AsyncSession, table_id: int) -> int:
+        """How many bookings -- of any status -- reference ``table_id``.
+
+        Every status counts, history included: the FK from ``reservations`` to
+        ``tables`` is ``ON DELETE CASCADE``, so a hard delete of the table would
+        take its past bookings with it. Callers use this to refuse instead.
+        """
+        stmt = select(func.count()).select_from(Reservation).where(
+            Reservation.table_id == table_id
+        )
+        res = await session.execute(stmt)
+        return int(res.scalar_one())
+
+    @staticmethod
     async def update_reservation(
         session: AsyncSession, reservation: Reservation, values: Dict[str, Any]
     ) -> Reservation:

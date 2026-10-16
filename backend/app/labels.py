@@ -60,6 +60,7 @@ AUDIT_ACTION_LABELS = {
     "branch.updated": "修改门店",
     "table.created": "新建餐桌",
     "table.updated": "修改餐桌",
+    "table.deleted": "删除餐桌",
     "gift.issued": "发放赠品",
     "gift.redeemed": "核销赠品",
     "approval.created": "新建审批",

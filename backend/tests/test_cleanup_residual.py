@@ -1,9 +1,8 @@
 """Task13 tests: no residual direct DB access or duplicated business rules.
 
-Covers the leftovers the per-module migrations did not reach: the chat route's
-branch lookup (now BranchService), the staff menu route's inline availability
-rule (now the centralized one), and the Agent order node's own price/stock math
-(now OrderService.preview_order).
+Covers the leftovers the per-module migrations did not reach: the staff menu
+route's inline availability rule (now the centralized one) and the Agent order
+node's own price/stock math (now OrderService.preview_order).
 """
 
 import json
@@ -17,7 +16,6 @@ from backend.app.agent.nodes import order_node as order_node_module
 from backend.app.agent.nodes.order_node import order_node
 from backend.app.database import transactional_session
 from backend.app.models.menu import MenuCategory, MenuItem, MenuItemStock
-from backend.app.routes import chat as chat_module
 from backend.app.routes import staff_menu as staff_menu_module
 from backend.app.service.branch import BranchService
 
@@ -26,12 +24,11 @@ def _src(module) -> str:
     return Path(module.__file__).read_text(encoding="utf-8")
 
 
-def test_chat_route_has_no_direct_db_access():
-    src = _src(chat_module)
-    assert "select(" not in src
-    assert ".execute(" not in src
-    assert "models.branch import Branch" not in src
-    assert "BranchService" in src
+# ``test_chat_route_has_no_direct_db_access`` used to live here, guarding the
+# chat route's branch lookup against a direct DB read. ``routes/chat.py`` has
+# since been deleted, so the test had nothing left to inspect while its import
+# kept the whole module from collecting -- dropping it, not the assertions it
+# made about code that still exists below.
 
 
 def test_staff_menu_route_uses_centralized_availability_rule():

@@ -104,6 +104,26 @@ class BranchRepo:
         return res.scalar_one_or_none()
 
     @staticmethod
+    async def get_table_by_label(
+        session: AsyncSession,
+        branch_id: int,
+        label: str,
+        *,
+        exclude_id: Optional[int] = None,
+    ) -> Optional[Table]:
+        """Any table in ``branch_id`` labelled ``label``, optionally skipping one id.
+
+        Returns the first match rather than erroring on several: the guard this
+        backs is what *stops* duplicates, so it must not itself blow up on a
+        database that already has one.
+        """
+        stmt = select(Table).where(Table.branch_id == branch_id, Table.label == label)
+        if exclude_id is not None:
+            stmt = stmt.where(Table.id != exclude_id)
+        res = await session.execute(stmt)
+        return res.scalars().first()
+
+    @staticmethod
     async def create_table(session: AsyncSession, values: Dict[str, Any]) -> Table:
         table = Table(**values)
         session.add(table)
@@ -118,6 +138,11 @@ class BranchRepo:
             setattr(table, key, value)
         await session.flush()
         return table
+
+    @staticmethod
+    async def delete_table(session: AsyncSession, table: Table) -> None:
+        await session.delete(table)
+        await session.flush()
 
 
 __all__ = ["BranchRepo"]
