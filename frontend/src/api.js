@@ -21,6 +21,18 @@ export const removeStaffToken = () => {
   localStorage.removeItem('staff_user');
 };
 
+/**
+ * Tell the app that an authenticated call came back 401 (stale / expired token).
+ * The app listens for ``auth:unauthorized`` and drops the dead session, then
+ * opens the matching login prompt — instead of leaving the user stuck seeing
+ * "无法验证凭据" on every screen.
+ */
+export function notifyUnauthorized(authType) {
+  window.dispatchEvent(
+    new CustomEvent('auth:unauthorized', { detail: { authType } })
+  );
+}
+
 export const getStoredCustomer = () => {
   try {
     const raw = localStorage.getItem('customer_user');
@@ -73,6 +85,11 @@ async function request(endpoint, options = {}, authType = null) {
   }
 
   if (!response.ok) {
+    // An invalid / expired token: hand control to the app's auth flow so the
+    // user is sent to the login prompt rather than left on an error screen.
+    if (response.status === 401 && authType) {
+      notifyUnauthorized(authType);
+    }
     const errMsg = (data && data.detail) || response.statusText || 'An error occurred';
     const error = new Error(errMsg);
     error.status = response.status;

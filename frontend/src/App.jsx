@@ -93,6 +93,29 @@ export default function App() {
     setCurrentView('customer');
   };
 
+  // A 401 on any authenticated call means the stored token is stale or expired.
+  // Drop the dead session and open the matching login prompt instead of leaving
+  // the user staring at "无法验证凭据" on every screen.
+  useEffect(() => {
+    const onUnauthorized = (e) => {
+      const authType = e.detail && e.detail.authType;
+      if (authType === 'staff') {
+        removeStaffToken();
+        setCurrentStaff(null);
+        setIsStaffAuthOpen(true);
+      } else if (authType === 'customer') {
+        removeCustomerToken();
+        setCurrentCustomer(null);
+        setIsCheckoutOpen(false);
+        setIsReservationOpen(false);
+        setIsMyHistoryOpen(false);
+        setIsCustomerAuthOpen(true);
+      }
+    };
+    window.addEventListener('auth:unauthorized', onUnauthorized);
+    return () => window.removeEventListener('auth:unauthorized', onUnauthorized);
+  }, []);
+
   // Self-service cart operations. A line is keyed by item + variant so the same
   // dish in two sizes stays two separate lines.
   const addToCart = (item, variant, qty) => {
