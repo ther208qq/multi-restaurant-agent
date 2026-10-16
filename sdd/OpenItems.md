@@ -401,8 +401,9 @@ Task19「经营统计与异常处理」已实现：按门店和日期统计订�
 **前端**：新组件 `KdsRequestPanel.jsx`（自含开合/草稿态），在「我的记录」订单卡片内渲染「联系后厨」按钮 →
 文本框 → `POST` → 显示回复，并展示 `held` 徽标（含暂缓原因）；发送后 `onSent` 刷新列表使 KDS 状态同步。
 
-**遗留**：KDS 只由顾客侧工具驱动，**员工侧无 KDS 操作界面**（`cooking`/`done` 目前不会被推进——属模拟层口径，
-`AgentFeatures.md` 已定「不接真实 KDS」）；`GET /orders/me` 已带 `kds_status`，员工订单页（`OrdersManager`）暂未展示。
+**遗留（2026-10-16 已补）**：KDS 只由顾客侧工具驱动、员工侧无 KDS 操作界面（`cooking`/`done` 无法推进）——已由
+§十六「问题二」补齐：员工 `PATCH /staff/orders/{id}/kds` 推进 `queued→cooking→done` + 解除挂起，`OrdersManager` 展示
+`kds_status` 徽标与后厨按钮（commit `f0d9030`）。「不接真实 KDS」的模拟层口径不变。
 
 ---
 
@@ -430,20 +431,23 @@ Agent 全程不碰 db，只经 Service-backed Tool。
 **Service（`ApprovalService`）**：`create_pending_order` 抽 `OrderService._place_order_in_session`（照功能2 的
 `_book_table_in_session` 范式），**同事务**落「pending 订单 + 审批记录」；`approve(approval_id, gift_id)`
 **重新校验 gift**（走 `issue_gift`：不存在/跨门店/不可售/库存不足 → 409）→ 追加 0 价赠品行 + 发券 + 订单转 `placed` +
-审批转 `approved`；`reject` 订单转 `cancelled` 并回滚库存。非 pending 再操作 → 409。
+审批转 `approved`；`reject` **订单转 `placed`（不发赠品、不回滚库存）**、审批转 `rejected`——拒绝赠品≠取消订单
+（2026-10-16 修正，见 §十六）。非 pending 再操作 → 409。
 
 **接口**：
 - `POST /orders`：备注意图门。命中赠品 → 订单落 `pending_approval` + 建审批，**202 + `approval_id`**（`OrderResponse` 增可选
   `approval_id`）；否则 200 `placed`。**破坏性**：命中时状态码 200→202。
-- 新增 `GET /orders/{order_id}`（顾客鉴权，存在/归属校验）——§5「C 端轮询」所需（§6 接口表未列，本次补充）。
+- 新增 `GET /orders/{order_id}`（顾客鉴权，存在/归属校验，响应含 `approval_status`）——§5「C 端轮询」所需（§6 接口表未列，本次补充）。
 - 新增 `GET /staff/approvals`（分支 scope，pending 时附 agent 的 live 赠品建议）、
   `POST /staff/approvals/{id}/approve`（body `{gift_id}`）、`POST /staff/approvals/{id}/reject`。
+- 新增 `POST /orders/{order_id}/cancel`（顾客取消自己的订单，幂等、归属校验、回滚库存）——「是否取消由用户决定」（§十六）。
 - 路由层直接 import `agent.approvals`（沿用功能2 `agent.offers` 先例；边界测试只禁 `routes→agent.tools`）。
 
 **审计**：新增 `approval.created` / `approval.approved` / `approval.rejected` 动作与 `approval` 实体（`labels.py`）。
 
-**前端**：`CheckoutModal` 命中 `pending_approval` 时进入「等待店长审批」态，轮询 `GET /orders/{id}` 直至
-`placed`（通过）/ `cancelled`（驳回）自动切换；`AdminLayout` 增「审批」页签 → 新组件 `ApprovalsManager`（10s 轮询，
+**前端**：`CheckoutModal` 命中 `pending_approval` 时进入「等待店长审批」态，轮询 `GET /orders/{id}` 直至订单离开
+`pending_approval`；据 `status + approval_status` 区分：`placed+approved`（赠品已附）、`placed+rejected`（赠品被拒但订单已下单，
+附「取消订单」）、`cancelled`（已取消）。`AdminLayout` 增「审批」页签 → 新组件 `ApprovalsManager`（10s 轮询，
 卡片展示顾客诉求/识别意图/订单行/Agent 赠品建议 + 赠品下拉 + [同意并赠送]/[拒绝]）。
 
 **遗留**：
@@ -451,4 +455,28 @@ Agent 全程不碰 db，只经 Service-backed Tool。
 - `POST /orders` 命中审批时 **不 dedup**（`deduplicate=False`，与顾客普通下单一致）——重复点击会产生两条待审批订单。
 - 审批通过后订单再被取消会回滚赠品行库存，但 `gifts` 券仍停留 `pending`（无 B 端 `redeemed` 流转，功能2 遗留同理）。
 - 员工订单页（`OrdersManager`）未展示 `pending_approval` 徽标（状态列会落到 `default` 分支显示原码）。
+
+---
+
+## 十六、冒烟复盘修正（2026-10-16 完成）
+
+功能3 真实端到端冒烟通过后，用户提出三个问题，逐一修复（全量 **506 passed**、`npm run build` 通过）：
+
+**问题一 · 拒绝赠品不应取消订单**（commit `b8c5162`）：
+- `ApprovalService.reject` 由「订单转 `cancelled` + 回滚库存」改为「订单转 `placed`（不发赠品、不回滚库存）」。
+- `OrderResponse` 增 `approval_status`，`GET /orders/{id}` 一并返回，顾客可区分「赠品已通过 / 被拒但订单已下单」。
+- 新增 `POST /orders/{order_id}/cancel`（顾客取消自己的订单，幂等、归属校验、回滚库存）——「是否取消由用户决定」。
+- `CheckoutModal` 据 `approval_status` 展示对应结果，被拒时附「取消订单」按钮。
+
+**问题二 · 联系后厨不完善（方案 A）**（commit `f0d9030`）：
+- 员工侧补齐 KDS 推进：`OrderService.update_kds_status`（`queued→cooking→done`、`held→queued` 解除挂起，分支 scope +
+  `KDS_TRANSITIONS` 校验）、`PATCH /staff/orders/{id}/kds`。
+- `OrdersManager` 每卡显示 `kds_status` 徽标（含 held 原因）+ 后厨按钮（开始制作 / 出餐 / 解除挂起）。
+
+**问题三 · 前端 401 未跳登录**（commit `b53b883`）：
+- `api.request` 遇 401 派发 `auth:unauthorized`；`App` 监听后清 token、复位会话并弹出对应登录框（顾客/员工两侧），
+  不再干报「无法验证凭据」。
+
+**环境备注**：冒烟中发现**开发库从未迁移功能1 的 `orders.kds_status/kds_held_reason` 列**（§十四已预警），导致任何
+`POST /orders` 都会 500；已按文档 ALTER 补齐（幂等，不改代码）。这是环境缺迁移，非功能3 代码缺陷。
 
