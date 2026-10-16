@@ -480,3 +480,85 @@ Agent 全程不碰 db，只经 Service-backed Tool。
 **环境备注**：冒烟中发现**开发库从未迁移功能1 的 `orders.kds_status/kds_held_reason` 列**（§十四已预警），导致任何
 `POST /orders` 都会 500；已按文档 ALTER 补齐（幂等，不改代码）。这是环境缺迁移，非功能3 代码缺陷。
 
+---
+
+## 十七、Agent 能力清单校验（对 `sdd/校验功能添加.md` 的审计）（2026-10-16）
+
+用户提供 `sdd/校验功能添加.md`——一份**6 项 Agent 底层能力的采用评估**（非任务清单）。本节逐条核对该文档的
+结论与本仓库**真实代码**，给出证据与偏差。**本轮不改代码**，只出校验结论。
+全量回归：`pytest` **506 passed**（`test_cleanup_residual.py` 收集失败除外，见「顺带发现 2」）。
+
+**读数前提**：文档的「技术栈依赖」按 **Java 栈**写（Spring AI / LangChain4j `@Tool`、LangGraph 图中断 + WebSocket、
+pgvector）。本项目是 **Python + FastAPI + LangGraph + 自建 `llm_client` seam**（`agent/llm.py`），故逐条按 Python 栈换算后再判。
+
+### 17.1 总览
+
+| # | 能力 | 文档建议 | 本项目实际 | 校验结论 |
+|---|---|---|---|---|
+| 1 | Tool Calling | 🔥 必须采用 | 有 6 组工具，但由**确定性代码**选择，非 LLM function calling | ✅ 已采用（形态不同） |
+| 2 | Context Management | 🔥 必须采用 | Postgres checkpointer 已建但**无人消费**；跨请求上下文改存业务表 | ⚠️ 在位未接线 |
+| 3 | Sub-Agent / Multi-Agent | ✅ 推荐采用 | LangGraph 图无入口；模式改由 `agent/*.py` flow 模块承载 | ✅ 已采用（载体不同） |
+| 4 | Human-in-the-loop | ✅ 按需采用 | 已落地，用 **DB 状态机 + 轮询**，非图中断 | ✅ 已采用 |
+| 5 | RAG | ❌ 跳过 | 无向量库 / embedding / 检索 | ⏭️ 未采用（与文档一致） |
+| 6 | Sandbox | ❌ 不需要 | 无动态执行；JWT 在位，**但无限流** | ✅ 不需要（限流是缺口） |
+
+### 17.2 逐条证据
+
+**1. Tool Calling —— 已采用，但是"工作流式编排"而非"LLM 挑工具"**
+- 工具层存在且是 Service 薄适配：`agent/tools/` 6 个模块（`faq_tools` / `gift_tools` / `kds_tools` / `menu_tools` /
+  `order_tools` / `table_tools`），全部只 import `service/*`，例：`kds_tools.py:41/58/74`（`query/suspend/resume_kds_task`
+  → `OrderService`）、`gift_tools.py:12`（`get_surplus_inventory` → `GiftService`）、`table_tools.py:25/81`。
+- 边界由**测试强制**：`test_architecture_boundaries.py:35` 禁 `agent → repo`，`:137` 禁 `agent/` 内出现 ORM/session 标记。
+- **偏差（文档核心假设不成立）**：全库 grep `bind_tools` / `@tool` / `tool_calls` / `langchain_core.tools` **零命中**。
+  工具的选择由确定性代码完成——`kds.py:170` `handle_kds_request` 先 `classify_kds_intent`（规则优先）再调固定工具；
+  `intent_router.py:97` 关键词路由、`:149` 命中即走、`:163` 才回落 LLM 意图分类。即：**LLM 只做意图分类，不做工具选择**。
+
+**2. Context Management —— 基础设施在位，但活代码不经过它**
+- checkpointer 启动即建：`main.py:49-52`（`init_postgres_checkpointer_tables` + `create_checkpointer_pool` → `app.state`），
+  池生命周期有测试（`test_chat_pool.py:15`）。
+- **但没有任何路由消费它**：`get_checkpointer`（`checkpointer.py:41`）除边界测试里的字符串样本
+  （`test_architecture_boundaries.py:182`）外**无任何引用**；`graph.py:63` 的 `compiled_graph` 也**无任何 `ainvoke` 调用点**
+  （全库 grep 仅命中定义处）。且 `compile()` **未挂 checkpointer**，即便被调用也不落盘。
+- 跨请求的"上下文"实际落在**业务表**里：`orders.kds_status/kds_held_reason`、`order_approvals`。
+- 这与文档的用法**有意不同**：`AgentFeatures.md` §5 明写「用 **DB 状态 + 恢复接口**（比 LangGraph interrupt 简单、跨请求不持活图）」。
+
+**3. Sub-Agent / Multi-Agent —— 模式已采用，LangGraph 图本身是遗留资产**
+- 图确实建了 6 节点 + 条件边（`graph.py:23-59`，`route_intent`），但**无 HTTP 入口**（`routes/chat.py` 已删，`routes/` 现无 chat），
+  只被测试直接调节点函数（`test_agent_intent_router.py` / `test_agent_flow_drafts.py` 等）。
+- 线上跑的"子智能体"是**模块级 flow**：`agent/kds.py`（意图→KDS 动作）、`agent/approvals.py`（`:105` `classify_gift_intent`
+  → `:124` `build_gift_suggestion`）、`agent/offers.py`（逼单话术）。三者的共同范式＝「一个意图识别器 + 一个职责单一的执行动作」，
+  由业务端点在内部调用：`routes/customer_agent.py:49`、`routes/customer_orders.py:143`。
+
+**4. Human-in-the-loop —— 已采用，走"传统审批流"那一支**
+- 文档给的两条路（LangGraph `interrupt_*` vs. 传统审批流）中，本项目选了后者且已闭环：
+  `POST /orders` 命中赠品 → `customer_orders.py:143` 调 `assess_order_note` → `:156` 返 **202 + `approval_id`**；
+  B 端 `staff_approvals.py:40`（`GET`）/ `:67`（`approve`）/ `:82`（`reject`）；C 端轮询 `GET /orders/{id}`。
+  前端 `ApprovalsManager`（10s 轮询）+ `CheckoutModal`（等待态轮询）。详见 §十五、§十六。
+
+**5. RAG —— 未采用，与文档一致**
+- grep `pgvector|embedding|vector(|faiss|milvus|chroma|sentence-transformers|retriev` 在 `backend/app`、前端、依赖清单中**零命中**。
+  FAQ 走结构化表（`FAQService`），客户活动走 SQL——正如文档所述，这三个场景属结构化查询，不需要非结构化检索。
+
+**6. Sandbox —— 确实不需要；但文档点名的"限流"没做**
+- 无动态执行：`eval(` / `exec(` / `subprocess` / `os.system` / `pickle.loads` 在 `backend/app` **零命中**。
+- Agent 的操作边界由架构测试锁死（同第 1 条），JWT 鉴权在位：`auth/security.py:29` `HTTPBearer` + `:33` `jwt.decode`，
+  顾客 / 员工两套依赖。
+- **缺口**：grep `rate_limit|slowapi|limiter|throttl` 零命中，依赖清单也无限流库——文档「用 JWT 鉴权 + 接口限流保护
+  `queryKdsStatus` / `addGiftToOrder` 类接口」中的**限流一半未落地**（鉴权已做）。
+
+### 17.3 顺带发现（校验过程中撞到的不一致）
+
+1. **过时注释**：`test_architecture_boundaries.py:14` 的模块 docstring 仍写「`routes/chat.py` is allowed to import
+   `agent.graph` / `agent.checkpointer`」——该路由已删除。测试逻辑无碍（`:178` 只是样本字符串），但注释误导。
+2. **`test_cleanup_residual.py` 仍无法收集**：`:20` `from backend.app.routes import chat` 指向已删模块，
+   `pytest` 因此整体中断（`--ignore` 后 506 passed）。§十五 已记为遗留（`872b1e6`），本次复核**仍未修**。
+3. **checkpointer 空转有成本**：启动时无条件建异步连接池（`main.py:50`）并跑一次 `saver.setup()` 建表，却无消费者。
+
+### 17.4 真实缺口（供后续决策，本轮不动）
+
+| 缺口 | 现状 | 可选处置 |
+|---|---|---|
+| 图 / checkpointer 未接线 | 「上下文管理」与「多智能体」两项能力在位但休眠 | 要么**接回去**（给 `compile()` 挂 checkpointer 并恢复入口），要么**摘掉**（连同 `test_chat_pool.py`）——避免"文档说采用了、代码里其实是死代码" |
+| 无限流 | JWT 有了，限流没有 | 若按文档口径收口，给 `/agent/*`、`/staff/approvals/*` 加限流（slowapi 或网关层） |
+| 清洁度 | 上面 3 条顺带发现 | 顺手可修（改注释 + 删/改写 `test_cleanup_residual.py`） |
+
