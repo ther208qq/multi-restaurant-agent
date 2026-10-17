@@ -122,6 +122,53 @@ class ReservationRepo:
         return list(res.scalars().all())
 
     @staticmethod
+    async def reservation_status_totals(
+        session: AsyncSession,
+        *,
+        branch_id: int,
+        start: datetime,
+        end: datetime,
+        now: datetime,
+    ) -> List[Dict[str, Any]]:
+        """Reservation counts and party sizes per status, split by slot elapsed.
+
+        A reservation belongs to the window by its **start time** (when the
+        guest was expected), not by when it was created. ``start_passed`` is
+        ``True`` once the booked slot is in the past relative to ``now``: the
+        Service needs that split to distinguish a booking that has not happened
+        yet from one whose slot came and went while still ``pending`` /
+        ``confirmed``.
+        """
+        passed = (Reservation.start_time < now).label("start_passed")
+        stmt = (
+            select(
+                Reservation.status.label("status"),
+                passed,
+                func.count().label("reservation_count"),
+                func.coalesce(func.sum(Reservation.party_size), 0).label(
+                    "party_size"
+                ),
+            )
+            .where(
+                Reservation.branch_id == branch_id,
+                Reservation.start_time >= start,
+                Reservation.start_time < end,
+            )
+            .group_by(Reservation.status, passed)
+            .order_by(Reservation.status, passed)
+        )
+        res = await session.execute(stmt)
+        return [
+            {
+                "status": row.status,
+                "start_passed": bool(row.start_passed),
+                "reservation_count": int(row.reservation_count or 0),
+                "party_size": int(row.party_size or 0),
+            }
+            for row in res.all()
+        ]
+
+    @staticmethod
     async def find_open_duplicate(
         session: AsyncSession,
         *,

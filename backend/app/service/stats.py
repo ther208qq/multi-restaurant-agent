@@ -81,7 +81,48 @@ def resolve_branch_scope(
     )
 
 
+def _as_utc_date(value: Optional[datetime]) -> Optional[date]:
+    """The UTC calendar day of a stored timestamp (``None`` stays ``None``)."""
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc).date()
+
+
 class StatsService:
+    @staticmethod
+    async def get_data_coverage(
+        branch_id: Optional[int] = None,
+        *,
+        staff: Optional[StaffUser] = None,
+        session: Optional[AsyncSession] = None,
+    ) -> Dict[str, Any]:
+        """The first and last UTC day on which this branch has any order.
+
+        ``has_data`` is ``False`` for a branch with no orders at all; the date
+        fields are then ``None``. The investigation Agent uses this to anchor
+        relative expressions ("最近 7 天", "上个月") to the last day that
+        actually has data, instead of today on a historical dataset.
+        """
+        resolved_branch_id = resolve_branch_scope(branch_id, staff)
+
+        async with transactional_session(session) as s:
+            branch = await BranchRepo.get_branch(s, resolved_branch_id)
+            if branch is None:
+                raise NotFoundError(f"门店 #{resolved_branch_id} 不存在。")
+            first_at, last_at = await StatsRepo.order_date_range(
+                s, branch_id=resolved_branch_id
+            )
+
+        return {
+            "branch_id": resolved_branch_id,
+            "branch_name": branch.name,
+            "start_date": _as_utc_date(first_at),
+            "end_date": _as_utc_date(last_at),
+            "has_data": first_at is not None,
+        }
+
     @staticmethod
     async def get_branch_summary(
         branch_id: Optional[int] = None,

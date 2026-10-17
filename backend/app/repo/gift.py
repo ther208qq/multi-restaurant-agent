@@ -4,7 +4,7 @@ Receives a session from the Service layer, encapsulates ``Gift`` queries and
 inserts, never commits, and never imports ``service`` / ``routes`` / ``agent``.
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -20,16 +20,6 @@ class GiftRepo:
         session.add(gift)
         await session.flush()
         return gift
-
-    @staticmethod
-    async def get_gift(
-        session: AsyncSession, gift_id: int, *, with_item: bool = False
-    ) -> Optional[Gift]:
-        stmt = select(Gift).where(Gift.id == gift_id)
-        if with_item:
-            stmt = stmt.options(selectinload(Gift.item))
-        res = await session.execute(stmt)
-        return res.scalar_one_or_none()
 
     @staticmethod
     async def get_by_source(
@@ -53,30 +43,5 @@ class GiftRepo:
             stmt = stmt.options(selectinload(Gift.item))
         res = await session.execute(stmt)
         return res.scalars().first()
-
-    @staticmethod
-    async def list_gifts(
-        session: AsyncSession,
-        *,
-        branch_id: Optional[int] = None,
-        status: Optional[str] = None,
-        source_type: Optional[str] = None,
-        with_item: bool = False,
-        limit: Optional[int] = None,
-    ) -> List[Gift]:
-        stmt = select(Gift)
-        if with_item:
-            stmt = stmt.options(selectinload(Gift.item))
-        if branch_id is not None:
-            stmt = stmt.where(Gift.branch_id == branch_id)
-        if status is not None:
-            stmt = stmt.where(Gift.status == status)
-        if source_type is not None:
-            stmt = stmt.where(Gift.source_type == source_type)
-        stmt = stmt.order_by(Gift.created_at.desc())
-        if limit is not None:
-            stmt = stmt.limit(limit)
-        res = await session.execute(stmt)
-        return list(res.scalars().all())
 
 __all__ = ["GiftRepo"]

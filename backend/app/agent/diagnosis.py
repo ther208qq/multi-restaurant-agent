@@ -93,9 +93,15 @@ FORBIDDEN_CAUSE_KEYWORDS = (
     "售罄", "卖光", "卖完", "断货", "缺货", "无货", "供货",
 )
 
-# An evidence ref as ``_attach_evidence_refs`` writes it. Stripped before numbers
-# are read out of a sentence, so "见 f0.e1" does not register 0 and 1 as claims.
-_REF_PATTERN = re.compile(r"f\d+\.e\d+")
+# An evidence ref as this system writes it. Investigation tools namespace their
+# refs too (``daily1.e2``, ``dish1.5.d3``, ``peers1.s1``), and a thread-level
+# citation may carry the turn it came from (``t2.f0.e1``), so the pattern covers
+# the original ``fN.eM`` form, the optional extra numeric segment, and the
+# optional ``tN.`` prefix. Stripped before numbers are read out of a sentence, so
+# "见 f0.e1" does not register 0 and 1 as claims.
+_REF_PATTERN = re.compile(
+    r"\b(?:t\d+\.)?[a-z]+\d+(?:\.\d+)?\.[a-z]+\d+\b", re.I
+)
 
 _NUMBER_PATTERN = re.compile(r"\d+(?:\.\d+)?")
 
@@ -496,7 +502,11 @@ def _evidence_brief(diagnosis: Dict[str, Any]) -> str:
 
 
 def _accept_claims(
-    items: Any, *, refs: Dict[str, Any], allowed: Set[float]
+    items: Any,
+    *,
+    refs: Dict[str, Any],
+    allowed: Set[float],
+    problems: Optional[List[str]] = None,
 ) -> Tuple[List[Dict[str, Any]], int]:
     """Keep only the claims that cite real evidence and assert nothing invented.
 
@@ -504,33 +514,64 @@ def _accept_claims(
     nothing at all, blames a cause the system cannot see, or carries a number the
     payload does not contain. Partial credit is not offered: a sentence that is
     half-evidenced is a sentence whose other half is a guess.
+
+    ``problems`` is an optional collector for the human-readable reasons. The
+    investigation Agent feeds them back to the model for one repair attempt, so
+    the wording names the offending claim rather than only counting it.
     """
     kept: List[Dict[str, Any]] = []
     dropped = 0
-    for item in items if isinstance(items, list) else []:
+    if items is None:
+        return kept, dropped
+    if not isinstance(items, list):
+        if problems is not None:
+            problems.append("结论列表格式无效（应为数组）。")
+        return kept, 1
+    for index, item in enumerate(items, start=1):
         if not isinstance(item, dict):
             dropped += 1
+            if problems is not None:
+                problems.append(f"第 {index} 条结论不是对象。")
             continue
         text = str(item.get("text") or "").strip()
         cited = [ref for ref in item.get("evidence_refs") or [] if isinstance(ref, str)]
-        if (
-            not text
-            or not cited
-            or any(ref not in refs for ref in cited)
-            or _asserts_forbidden_cause(text)
-            or any(
-                not _number_is_known(number, allowed)
-                for number in _numbers_in_text(text)
-            )
-        ):
+        reason: Optional[str] = None
+        if not text:
+            reason = "缺少 text。"
+        elif not cited:
+            reason = "没有引用任何 evidence_ref。"
+        else:
+            unknown_refs = sorted({ref for ref in cited if ref not in refs})
+            if unknown_refs:
+                reason = "引用了不存在的证据 " + "、".join(unknown_refs[:5]) + "。"
+            elif _asserts_forbidden_cause(text):
+                reason = "把原因归咎于系统没有采集的数据。"
+            else:
+                unknown_numbers = [
+                    number
+                    for number in _numbers_in_text(text)
+                    if not _number_is_known(number, allowed)
+                ]
+                if unknown_numbers:
+                    reason = (
+                        "出现了证据之外的数字 "
+                        + "、".join(str(number) for number in unknown_numbers[:5])
+                        + "。"
+                    )
+        if reason is not None:
             dropped += 1
+            if problems is not None:
+                problems.append(f"「{text or '（空结论）'}」{reason}")
             continue
         kept.append({"text": text, "evidence_refs": cited})
     return kept, dropped
 
 
 def _accept_hypotheses(
-    items: Any, *, allowed: Set[float]
+    items: Any,
+    *,
+    allowed: Set[float],
+    problems: Optional[List[str]] = None,
 ) -> Tuple[List[Dict[str, Any]], int]:
     """Keep only the guesses that stay guesses.
 
@@ -544,9 +585,17 @@ def _accept_hypotheses(
     """
     kept: List[Dict[str, Any]] = []
     dropped = 0
-    for item in items if isinstance(items, list) else []:
+    if items is None:
+        return kept, dropped
+    if not isinstance(items, list):
+        if problems is not None:
+            problems.append("hypotheses 列表格式无效（应为数组）。")
+        return kept, 1
+    for index, item in enumerate(items, start=1):
         if not isinstance(item, dict):
             dropped += 1
+            if problems is not None:
+                problems.append(f"第 {index} 条未经证实的解释不是对象。")
             continue
         text = str(item.get("text") or "").strip()
         if text.startswith(HYPOTHESIS_PREFIX):
@@ -554,16 +603,29 @@ def _accept_hypotheses(
         cited = item.get("evidence_refs") or []
         if isinstance(cited, str):
             cited = [cited]
-        if (
-            not text
-            or cited
-            or _asserts_forbidden_cause(text)
-            or any(
-                not _number_is_known(number, allowed)
+        reason: Optional[str] = None
+        if not text:
+            reason = "缺少 text。"
+        elif cited:
+            reason = "hypotheses 不能引用 evidence_ref。"
+        elif _asserts_forbidden_cause(text):
+            reason = "把原因归咎于系统没有采集的数据。"
+        else:
+            unknown_numbers = [
+                number
                 for number in _numbers_in_text(text)
-            )
-        ):
+                if not _number_is_known(number, allowed)
+            ]
+            if unknown_numbers:
+                reason = (
+                    "出现了证据之外的数字 "
+                    + "、".join(str(number) for number in unknown_numbers[:5])
+                    + "。"
+                )
+        if reason is not None:
             dropped += 1
+            if problems is not None:
+                problems.append(f"「{text or '（空解释）'}」{reason}")
             continue
         kept.append({"text": HYPOTHESIS_PREFIX + text, "evidence_refs": []})
     return kept, dropped
@@ -676,6 +738,60 @@ async def analyze_diagnosis(diagnosis: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def deterministic_facts(diagnosis: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Public access to the fact sentences derived only from the Service payload.
+
+    The investigation endpoint builds its report without a second LLM call; it
+    reuses exactly the facts the one-shot analysis would have used.
+    """
+    return _facts(diagnosis)
+
+
+# --------------------------------------------------------------------------- #
+# Guardrail seam shared with the investigation Agent (Task45)
+# --------------------------------------------------------------------------- #
+def validate_claims(
+    items: Any,
+    *,
+    refs: Dict[str, Any],
+    allowed: Set[float],
+    problems: Optional[List[str]] = None,
+) -> Tuple[List[Dict[str, Any]], int]:
+    """Public wrapper: keep claims that cite real evidence and contain no invented numbers.
+
+    ``problems`` optionally collects one human-readable reason per dropped claim
+    (Task57 repair loop).
+    """
+    return _accept_claims(items, refs=refs, allowed=allowed, problems=problems)
+
+
+def validate_hypotheses(
+    items: Any,
+    *,
+    allowed: Set[float],
+    problems: Optional[List[str]] = None,
+) -> Tuple[List[Dict[str, Any]], int]:
+    """Public wrapper: hypotheses stay ref-free and carry the ``未经证实：`` prefix."""
+    return _accept_hypotheses(items, allowed=allowed, problems=problems)
+
+
+def collect_numbers(value: Any) -> Set[float]:
+    """Every number nested anywhere in a tool result or diagnosis payload."""
+    numbers: Set[float] = set()
+    _collect_numbers(value, numbers)
+    return numbers
+
+
+def numbers_in_text(text: str) -> List[float]:
+    """Numbers a sentence asserts, ignoring evidence-ref tokens."""
+    return _numbers_in_text(text)
+
+
+def asserts_forbidden_cause(text: str) -> bool:
+    """Whether a sentence blames something the system has no data for."""
+    return _asserts_forbidden_cause(text)
+
+
 __all__ = [
     "ANALYSIS_INSUFFICIENT",
     "ANALYSIS_NO_FINDINGS",
@@ -685,6 +801,12 @@ __all__ = [
     "SOURCE_LLM",
     "SOURCE_RULE",
     "analyze_diagnosis",
+    "asserts_forbidden_cause",
+    "collect_numbers",
+    "deterministic_facts",
+    "numbers_in_text",
     "rule_causes",
     "rule_checks",
+    "validate_claims",
+    "validate_hypotheses",
 ]

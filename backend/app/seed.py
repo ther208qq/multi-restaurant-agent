@@ -85,11 +85,16 @@ async def seed_data() -> None:
         await session.flush()
 
         variants_margherita = [
-            MenuItemVariant(menu_item_id=item_margherita.id, variant_type="size", variant_name="小份（10 英寸）", price_delta=-2.00),
-            MenuItemVariant(menu_item_id=item_margherita.id, variant_type="size", variant_name="中份（12 英寸）", price_delta=0.00),
-            MenuItemVariant(menu_item_id=item_margherita.id, variant_type="size", variant_name="大份（14 英寸）", price_delta=4.00),
-            MenuItemVariant(menu_item_id=item_margherita.id, variant_type="topping", variant_name="加量马苏里拉", price_delta=2.00),
-            MenuItemVariant(menu_item_id=item_margherita.id, variant_type="topping", variant_name="卡拉马塔橄榄", price_delta=1.50),
+            MenuItemVariant(menu_item_id=item_margherita.id, variant_type="size", variant_name="小份（10 英寸）",
+                            price_delta=-2.00),
+            MenuItemVariant(menu_item_id=item_margherita.id, variant_type="size", variant_name="中份（12 英寸）",
+                            price_delta=0.00),
+            MenuItemVariant(menu_item_id=item_margherita.id, variant_type="size", variant_name="大份（14 英寸）",
+                            price_delta=4.00),
+            MenuItemVariant(menu_item_id=item_margherita.id, variant_type="topping", variant_name="加量马苏里拉",
+                            price_delta=2.00),
+            MenuItemVariant(menu_item_id=item_margherita.id, variant_type="topping", variant_name="卡拉马塔橄榄",
+                            price_delta=1.50),
         ]
         stock_margherita = MenuItemStock(menu_item_id=item_margherita.id, branch_id=b1.id, stock_quantity=40)
         session.add_all(variants_margherita + [stock_margherita])
@@ -135,8 +140,10 @@ async def seed_data() -> None:
         session.add(item_alfredo)
         await session.flush()
         variants_alfredo = [
-            MenuItemVariant(menu_item_id=item_alfredo.id, variant_type="spice_level", variant_name="微辣", price_delta=0.00),
-            MenuItemVariant(menu_item_id=item_alfredo.id, variant_type="spice_level", variant_name="辣", price_delta=0.50),
+            MenuItemVariant(menu_item_id=item_alfredo.id, variant_type="spice_level", variant_name="微辣",
+                            price_delta=0.00),
+            MenuItemVariant(menu_item_id=item_alfredo.id, variant_type="spice_level", variant_name="辣",
+                            price_delta=0.50),
         ]
         stock_alfredo = MenuItemStock(menu_item_id=item_alfredo.id, branch_id=b1.id, stock_quantity=25)
         session.add_all(variants_alfredo + [stock_alfredo])

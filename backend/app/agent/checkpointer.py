@@ -2,7 +2,6 @@
 
 import logging
 from typing import Tuple
-from fastapi import Request, HTTPException, status
 from psycopg_pool import AsyncConnectionPool
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from langgraph.checkpoint.postgres import PostgresSaver
@@ -36,18 +35,3 @@ async def create_checkpointer_pool() -> Tuple[AsyncConnectionPool, AsyncPostgres
     await pool.wait()
     checkpointer = AsyncPostgresSaver(pool)
     return pool, checkpointer
-
-
-def get_checkpointer_dep(request: Request) -> AsyncPostgresSaver:
-    """Dependency to retrieve the shared AsyncPostgresSaver from app.state."""
-    checkpointer = getattr(request.app.state, "checkpointer", None)
-    if not checkpointer:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="聊天记忆组件尚未初始化。",
-        )
-    return checkpointer
-
-
-# Alias for convenience
-get_checkpointer = get_checkpointer_dep

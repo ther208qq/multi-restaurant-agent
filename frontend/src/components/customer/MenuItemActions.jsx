@@ -3,8 +3,8 @@ import { AlertTriangle, ShoppingCart, Minus, Plus } from 'lucide-react';
 
 /**
  * The per-item action row of the menu explorer: the stock badge, the quantity
- * stepper and the "add to cart" / "ask the AI" buttons. Kept in its own small
- * component so the explorer stays readable.
+ * stepper and the "add to cart" button. Kept in its own small component so the
+ * explorer stays readable.
  */
 export default function MenuItemActions({ item, draft, onPatch, onAdd }) {
   const isAvailable = item.is_available && item.stock_quantity > 0;

@@ -17,7 +17,6 @@ from backend.app.schemas.branch import (
     TableResponse,
     TableUpdate,
 )
-from backend.app.schemas.chat import ChatRequest, ChatResponse
 from backend.app.schemas.menu import (
     MenuCategoryCreate,
     MenuCategoryResponse,
@@ -65,8 +64,6 @@ __all__ = [
     "TableCreate",
     "TableResponse",
     "TableUpdate",
-    "ChatRequest",
-    "ChatResponse",
     "MenuCategoryCreate",
     "MenuCategoryResponse",
     "MenuItemCreate",

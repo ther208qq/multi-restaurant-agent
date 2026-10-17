@@ -94,6 +94,33 @@ async def test_list_orders_admin_sees_all_and_filters(async_client, staff_auth_h
         await _cleanup(cat_id, order_id)
 
 
+async def test_list_orders_is_bounded_and_validated(
+    async_client, staff_auth_headers
+):
+    """A real branch can hold tens of thousands of orders; the list endpoint
+    must return a bounded newest-first page instead of the whole history."""
+    item_id, cat_id = await _make_item(branch_id=1, stock=5)
+    order_id = None
+    try:
+        order = await _place(1, item_id)
+        order_id = order.id
+
+        newest = await async_client.get(
+            "/api/staff/orders?branch_id=1&limit=1", headers=staff_auth_headers
+        )
+        assert newest.status_code == 200
+        assert [o["id"] for o in newest.json()] == [order_id]
+
+        for invalid in (0, 501):
+            resp = await async_client.get(
+                f"/api/staff/orders?branch_id=1&limit={invalid}",
+                headers=staff_auth_headers,
+            )
+            assert resp.status_code == 422
+    finally:
+        await _cleanup(cat_id, order_id)
+
+
 async def test_list_orders_branch_scoped_staff_sees_only_own_branch(async_client):
     item1, cat1 = await _make_item(branch_id=1, stock=5)
     item2, cat2 = await _make_item(branch_id=2, stock=5)

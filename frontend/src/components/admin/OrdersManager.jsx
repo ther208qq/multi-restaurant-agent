@@ -162,14 +162,19 @@ export default function OrdersManager({ currentStaff, branches }) {
           </div>
         </div>
 
-        <button
-          onClick={fetchOrders}
-          disabled={loading}
-          className="btn-outline btn-sm"
-          style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
-        >
-          <RefreshCw size={14} className={loading ? 'spin' : ''} /> 刷新订单
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+          <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+            仅显示最近 100 条
+          </span>
+          <button
+            onClick={fetchOrders}
+            disabled={loading}
+            className="btn-outline btn-sm"
+            style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+          >
+            <RefreshCw size={14} className={loading ? 'spin' : ''} /> 刷新订单
+          </button>
+        </div>
       </div>
 
       {error && (

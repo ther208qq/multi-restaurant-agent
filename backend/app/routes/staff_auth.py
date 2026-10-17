@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.auth.security import create_access_token, get_current_staff
+from backend.app.config import settings
 from backend.app.database import get_db
 from backend.app.models.user import StaffUser
 from backend.app.schemas.auth import StaffLoginRequest, StaffResponse, TokenResponse
@@ -44,6 +45,17 @@ async def staff_login(payload: StaffLoginRequest, db: AsyncSession = Depends(get
             "type": "staff",
         },
     )
+
+
+@router.get("/login-hints")
+def staff_login_hints():
+    """Public: which demo account set the active database contains.
+
+    The development database is seeded with ``admin`` / ``downtown_staff``;
+    the isolated evaluation database carries ``eval_admin`` / ``eval_staff``.
+    The login UI asks this endpoint instead of assuming the development seed.
+    """
+    return {"dataset": settings.dataset}
 
 
 @router.get("/me", response_model=StaffResponse)

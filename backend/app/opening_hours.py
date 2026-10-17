@@ -37,10 +37,10 @@ def parse_opening_hours(text: Optional[str]) -> Tuple[int, int]:
         int(group) for group in match.groups()
     )
     if (
-        open_hour > 23
-        or close_hour > 23
-        or open_minute > 59
-        or close_minute > 59
+            open_hour > 23
+            or close_hour > 23
+            or open_minute > 59
+            or close_minute > 59
     ):
         raise ValidationError(OPENING_HOURS_FORMAT_ERROR)
     open_minutes = open_hour * 60 + open_minute

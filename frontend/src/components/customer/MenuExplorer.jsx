@@ -29,7 +29,7 @@ export default function MenuExplorer({ menuData, onAddToCart }) {
     );
   }
 
-  const categories = menuData.categories || [];
+  const categories = menuData.categories;
   const allItems = categories.flatMap((cat) =>
     (cat.items || []).map((item) => ({ ...item, category_name: cat.name }))
   );

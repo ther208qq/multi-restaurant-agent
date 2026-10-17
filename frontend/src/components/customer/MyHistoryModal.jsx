@@ -149,7 +149,7 @@ export default function MyHistoryModal({ isOpen, onClose }) {
             orders.length === 0 ? (
               <div style={{ textAlign: 'center', padding: '2.5rem', color: 'var(--text-muted)' }}>
                 <ShoppingBag size={36} style={{ margin: '0 auto 8px', opacity: 0.5 }} />
-                <p>还没有订单。快请 AI 助手帮您下第一单吧！</p>
+                <p>还没有订单。快去菜单选一道喜欢的菜，下第一单吧！</p>
               </div>
             ) : (
               orders.map((o) => (

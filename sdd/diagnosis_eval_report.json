@@ -1,0 +1,1434 @@
+{
+  "generated_at": "2026-10-17T10:26:28.021213+00:00",
+  "dataset": {
+    "path": "backend/app/agent/diagnosis_eval_dataset.json",
+    "version": 1,
+    "sha256": "f84482d68663a76fa9bf68f88ffee23d5336fa894e264425feae0767704b775e",
+    "scenarios": 10
+  },
+  "harness": {
+    "mode": "offline-scripted",
+    "provider_calls": 0,
+    "database_access": false
+  },
+  "summary": {
+    "scenarios": 10,
+    "passed": 10,
+    "failed": 0,
+    "pass_rate": 1.0,
+    "turns": 11,
+    "tool_selection_accuracy": 1.0,
+    "window_accuracy": 0.95,
+    "citation_validity": 0.9230769230769231,
+    "number_hallucination_rate": 0.03225806451612903,
+    "degradation_rate": 0.36363636363636365,
+    "guardrail_intervention_rate": 0.18181818181818182,
+    "avg_latency_ms": 59.691,
+    "total_latency_ms": 656.601,
+    "tokens": {
+      "prompt": 47844,
+      "tool_output": 6435,
+      "answer": 412,
+      "context_after": 7934,
+      "total": 54691
+    },
+    "avg_tokens_per_turn": 4971.9,
+    "model_calls": 42
+  },
+  "scenarios": [
+    {
+      "id": "dish_collapse",
+      "description": "营业额下降，下钻到招牌菜逐日证据",
+      "passed": true,
+      "failures": [],
+      "turns": [
+        {
+          "question": "最近7天招牌菜销量为什么下降？",
+          "expect": {
+            "tools": [
+              "resolve_time_range",
+              "get_diagnosis",
+              "get_dish_daily"
+            ],
+            "window_accuracy": 1.0,
+            "window_mismatches": 0,
+            "resolved_window_ok": true,
+            "budget_used": 2,
+            "budget_exhausted": false,
+            "budget_refusals": 0,
+            "tool_failures": 0,
+            "tool_timeouts": 0,
+            "dropped": 0,
+            "report_source": "mixed",
+            "degraded": false,
+            "degrade_reasons": [],
+            "min_citation_validity": 1.0,
+            "max_number_hallucinations": 0,
+            "answer_violations": false,
+            "min_thread_evidence_count": 1
+          },
+          "metrics": {
+            "turn_index": 1,
+            "question": "最近7天招牌菜销量为什么下降？",
+            "tools": [
+              "resolve_time_range",
+              "get_diagnosis",
+              "get_dish_daily"
+            ],
+            "tool_selection_match": true,
+            "window": {
+              "expected_start_date": "2026-10-05",
+              "expected_end_date": "2026-10-11",
+              "resolved_start_date": "2026-10-05",
+              "resolved_end_date": "2026-10-11",
+              "resolved_window_ok": true,
+              "dated_calls": 2,
+              "matching_calls": 2,
+              "accuracy": 1.0,
+              "mismatches": 0
+            },
+            "citation": {
+              "total": 5,
+              "valid": 5,
+              "missing": 0,
+              "validity": 1.0
+            },
+            "numbers": {
+              "total": 12,
+              "hallucinated": [],
+              "hallucination_rate": 0.0
+            },
+            "dropped": 0,
+            "report_source": "mixed",
+            "answer_violations": [],
+            "degraded": false,
+            "degrade_reasons": [],
+            "tool_failures": 0,
+            "tool_timeouts": 0,
+            "budget_refusals": 0,
+            "budget": {
+              "tool_calls_used": 2,
+              "tool_calls_limit": 6,
+              "exhausted": false,
+              "reason": null
+            },
+            "model_calls": 4,
+            "evidence_count": 9,
+            "thread_evidence_count": 6,
+            "elapsed_ms": 55.322,
+            "tokens": {
+              "prompt": 4506,
+              "tool_output": 647,
+              "answer": 46,
+              "context_after": 761,
+              "total": 5199
+            },
+            "answer": "2026 年 10 月 5 日至 10 月 11 日营业额 9600 元；招牌菜销量从 160 降到 96，是本次回落的主要来源（f0.e1、dish1.101.e3、dish1.101.d4）。",
+            "notes": []
+          },
+          "report": {
+            "status": "ok",
+            "source": "mixed",
+            "dropped": 0,
+            "facts": [
+              {
+                "text": "招牌菜本期销量 96，上期 160。",
+                "evidence_refs": [
+                  "dish1.101.e1",
+                  "dish1.101.e2"
+                ]
+              }
+            ],
+            "inferences": [
+              {
+                "text": "招牌菜销量下降是营业额回落的主要来源。",
+                "evidence_refs": [
+                  "f2.e1",
+                  "dish1.101.e3"
+                ]
+              }
+            ],
+            "checks": [
+              {
+                "text": "核对 10 月 8 日零销量当天的出单与备货。",
+                "evidence_refs": [
+                  "dish1.101.d4"
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "peer_comparison",
+      "description": "本店下降、其他门店持平时使用同业对比证据",
+      "passed": true,
+      "failures": [],
+      "turns": [
+        {
+          "question": "最近7天和别的门店比，我们店是不是更差？",
+          "expect": {
+            "tools": [
+              "resolve_time_range",
+              "get_diagnosis",
+              "compare_peers"
+            ],
+            "window_accuracy": 1.0,
+            "window_mismatches": 0,
+            "resolved_window_ok": true,
+            "budget_used": 2,
+            "budget_exhausted": false,
+            "budget_refusals": 0,
+            "tool_failures": 0,
+            "tool_timeouts": 0,
+            "dropped": 0,
+            "report_source": "mixed",
+            "degraded": false,
+            "degrade_reasons": [],
+            "min_citation_validity": 1.0,
+            "max_number_hallucinations": 0,
+            "answer_violations": false,
+            "min_thread_evidence_count": 1
+          },
+          "metrics": {
+            "turn_index": 1,
+            "question": "最近7天和别的门店比，我们店是不是更差？",
+            "tools": [
+              "resolve_time_range",
+              "get_diagnosis",
+              "compare_peers"
+            ],
+            "tool_selection_match": true,
+            "window": {
+              "expected_start_date": "2026-10-05",
+              "expected_end_date": "2026-10-11",
+              "resolved_start_date": "2026-10-05",
+              "resolved_end_date": "2026-10-11",
+              "resolved_window_ok": true,
+              "dated_calls": 2,
+              "matching_calls": 2,
+              "accuracy": 1.0,
+              "mismatches": 0
+            },
+            "citation": {
+              "total": 2,
+              "valid": 2,
+              "missing": 0,
+              "validity": 1.0
+            },
+            "numbers": {
+              "total": 1,
+              "hallucinated": [],
+              "hallucination_rate": 0.0
+            },
+            "dropped": 0,
+            "report_source": "mixed",
+            "answer_violations": [],
+            "degraded": false,
+            "degrade_reasons": [],
+            "tool_failures": 0,
+            "tool_timeouts": 0,
+            "budget_refusals": 0,
+            "budget": {
+              "tool_calls_used": 2,
+              "tool_calls_limit": 6,
+              "exhausted": false,
+              "reason": null
+            },
+            "model_calls": 4,
+            "evidence_count": 8,
+            "thread_evidence_count": 7,
+            "elapsed_ms": 39.617,
+            "tokens": {
+              "prompt": 4404,
+              "tool_output": 535,
+              "answer": 26,
+              "context_after": 647,
+              "total": 4965
+            },
+            "answer": "本店营业额 9600 元，较上期下降；其他可比门店基本持平（peers1.s1）。",
+            "notes": []
+          },
+          "report": {
+            "status": "ok",
+            "source": "mixed",
+            "dropped": 0,
+            "facts": [
+              {
+                "text": "营业额下降 19.2%（本期 9600.0，上期 11880.0，严重）。",
+                "evidence_refs": [
+                  "f0.e1",
+                  "f0.e2"
+                ]
+              },
+              {
+                "text": "招牌菜销量下降 40.0%（本期 96，上期 160，严重）。",
+                "evidence_refs": [
+                  "f2.e1",
+                  "f2.e2"
+                ]
+              }
+            ],
+            "inferences": [
+              {
+                "text": "本店下降不是所有门店的共性问题。",
+                "evidence_refs": [
+                  "peers1.s1"
+                ]
+              }
+            ],
+            "checks": [
+              {
+                "text": "核对本店菜品与运营调整。",
+                "evidence_refs": [
+                  "peers1.s1"
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "ops_change",
+      "description": "金额异常时补充运营变更证据（菜品价格调整）",
+      "passed": true,
+      "failures": [],
+      "turns": [
+        {
+          "question": "最近7天营业额下降，期间有什么运营调整吗？",
+          "expect": {
+            "tools": [
+              "resolve_time_range",
+              "get_diagnosis",
+              "get_operational_changes"
+            ],
+            "window_accuracy": 1.0,
+            "window_mismatches": 0,
+            "resolved_window_ok": true,
+            "budget_used": 2,
+            "budget_exhausted": false,
+            "budget_refusals": 0,
+            "tool_failures": 0,
+            "tool_timeouts": 0,
+            "dropped": 0,
+            "report_source": "mixed",
+            "degraded": false,
+            "degrade_reasons": [],
+            "min_citation_validity": 1.0,
+            "max_number_hallucinations": 0,
+            "answer_violations": false,
+            "min_thread_evidence_count": 1
+          },
+          "metrics": {
+            "turn_index": 1,
+            "question": "最近7天营业额下降，期间有什么运营调整吗？",
+            "tools": [
+              "resolve_time_range",
+              "get_diagnosis",
+              "get_operational_changes"
+            ],
+            "tool_selection_match": true,
+            "window": {
+              "expected_start_date": "2026-10-05",
+              "expected_end_date": "2026-10-11",
+              "resolved_start_date": "2026-10-05",
+              "resolved_end_date": "2026-10-11",
+              "resolved_window_ok": true,
+              "dated_calls": 2,
+              "matching_calls": 2,
+              "accuracy": 1.0,
+              "mismatches": 0
+            },
+            "citation": {
+              "total": 3,
+              "valid": 3,
+              "missing": 0,
+              "validity": 1.0
+            },
+            "numbers": {
+              "total": 1,
+              "hallucinated": [],
+              "hallucination_rate": 0.0
+            },
+            "dropped": 0,
+            "report_source": "mixed",
+            "answer_violations": [],
+            "degraded": false,
+            "degrade_reasons": [],
+            "tool_failures": 0,
+            "tool_timeouts": 0,
+            "budget_refusals": 0,
+            "budget": {
+              "tool_calls_used": 2,
+              "tool_calls_limit": 6,
+              "exhausted": false,
+              "reason": null
+            },
+            "model_calls": 4,
+            "evidence_count": 5,
+            "thread_evidence_count": 5,
+            "elapsed_ms": 40.568,
+            "tokens": {
+              "prompt": 4338,
+              "tool_output": 463,
+              "answer": 26,
+              "context_after": 578,
+              "total": 4827
+            },
+            "answer": "本期营业额 9600 元；窗口内有一笔菜品价格修改记录（f0.e1、ops1.e1）。",
+            "notes": []
+          },
+          "report": {
+            "status": "ok",
+            "source": "mixed",
+            "dropped": 0,
+            "facts": [
+              {
+                "text": "窗口内有一笔菜品价格调整。",
+                "evidence_refs": [
+                  "ops1.e1"
+                ]
+              }
+            ],
+            "inferences": [
+              {
+                "text": "整店订单量没有明显变化，而这些菜品销量明显下滑，问题更可能集中在个别菜品而不是全店客流。",
+                "evidence_refs": [
+                  "f2.e1",
+                  "f2.e2"
+                ]
+              }
+            ],
+            "checks": [
+              {
+                "text": "核对价格调整后的菜品销量。",
+                "evidence_refs": [
+                  "f2.e1",
+                  "ops1.e1"
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "follow_up_window_switch",
+      "description": "同一线程内追问上个月，窗口切换且历史证据仍可解析",
+      "passed": true,
+      "failures": [],
+      "turns": [
+        {
+          "question": "最近7天经营怎么样？",
+          "expect": {
+            "tools": [
+              "resolve_time_range",
+              "get_diagnosis"
+            ],
+            "window_accuracy": 1.0,
+            "window_mismatches": 0,
+            "resolved_window_ok": true,
+            "budget_used": 1,
+            "budget_exhausted": false,
+            "budget_refusals": 0,
+            "tool_failures": 0,
+            "tool_timeouts": 0,
+            "dropped": 0,
+            "report_source": "mixed",
+            "degraded": false,
+            "degrade_reasons": [],
+            "min_citation_validity": 1.0,
+            "max_number_hallucinations": 0,
+            "answer_violations": false,
+            "min_thread_evidence_count": 1
+          },
+          "metrics": {
+            "turn_index": 1,
+            "question": "最近7天经营怎么样？",
+            "tools": [
+              "resolve_time_range",
+              "get_diagnosis"
+            ],
+            "tool_selection_match": true,
+            "window": {
+              "expected_start_date": "2026-10-05",
+              "expected_end_date": "2026-10-11",
+              "resolved_start_date": "2026-10-05",
+              "resolved_end_date": "2026-10-11",
+              "resolved_window_ok": true,
+              "dated_calls": 1,
+              "matching_calls": 1,
+              "accuracy": 1.0,
+              "mismatches": 0
+            },
+            "citation": {
+              "total": 1,
+              "valid": 1,
+              "missing": 0,
+              "validity": 1.0
+            },
+            "numbers": {
+              "total": 7,
+              "hallucinated": [],
+              "hallucination_rate": 0.0
+            },
+            "dropped": 0,
+            "report_source": "mixed",
+            "answer_violations": [],
+            "degraded": false,
+            "degrade_reasons": [],
+            "tool_failures": 0,
+            "tool_timeouts": 0,
+            "budget_refusals": 0,
+            "budget": {
+              "tool_calls_used": 1,
+              "tool_calls_limit": 6,
+              "exhausted": false,
+              "reason": null
+            },
+            "model_calls": 3,
+            "evidence_count": 4,
+            "thread_evidence_count": 4,
+            "elapsed_ms": 37.369,
+            "tokens": {
+              "prompt": 2934,
+              "tool_output": 377,
+              "answer": 19,
+              "context_after": 447,
+              "total": 3330
+            },
+            "answer": "2026 年 10 月 5 日至 10 月 11 日营业额 9600 元（f0.e1）。",
+            "notes": []
+          },
+          "report": {
+            "status": "ok",
+            "source": "mixed",
+            "dropped": 0,
+            "facts": [
+              {
+                "text": "本期营业额 9600 元。",
+                "evidence_refs": [
+                  "f0.e1"
+                ]
+              }
+            ],
+            "inferences": [
+              {
+                "text": "整店订单量没有明显变化，而这些菜品销量明显下滑，问题更可能集中在个别菜品而不是全店客流。",
+                "evidence_refs": [
+                  "f2.e1",
+                  "f2.e2"
+                ]
+              }
+            ],
+            "checks": [
+              {
+                "text": "本次没有展开该菜品的逐日明细，无法判断是单日塌方还是整期缓降，需要人工核查它在该区间的每日出单情况。",
+                "evidence_refs": [
+                  "f2.e1",
+                  "f2.e2"
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "question": "那上个月呢？",
+          "expect": {
+            "tools": [
+              "resolve_time_range",
+              "get_diagnosis"
+            ],
+            "window_accuracy": 1.0,
+            "window_mismatches": 0,
+            "resolved_window_ok": true,
+            "budget_used": 1,
+            "budget_exhausted": false,
+            "budget_refusals": 0,
+            "tool_failures": 0,
+            "tool_timeouts": 0,
+            "dropped": 0,
+            "report_source": "mixed",
+            "degraded": false,
+            "degrade_reasons": [],
+            "min_citation_validity": 1.0,
+            "max_number_hallucinations": 0,
+            "answer_violations": false,
+            "min_thread_evidence_count": 4
+          },
+          "metrics": {
+            "turn_index": 2,
+            "question": "那上个月呢？",
+            "tools": [
+              "resolve_time_range",
+              "get_diagnosis"
+            ],
+            "tool_selection_match": true,
+            "window": {
+              "expected_start_date": "2026-09-01",
+              "expected_end_date": "2026-09-30",
+              "resolved_start_date": "2026-09-01",
+              "resolved_end_date": "2026-09-30",
+              "resolved_window_ok": true,
+              "dated_calls": 1,
+              "matching_calls": 1,
+              "accuracy": 1.0,
+              "mismatches": 0
+            },
+            "citation": {
+              "total": 1,
+              "valid": 1,
+              "missing": 0,
+              "validity": 1.0
+            },
+            "numbers": {
+              "total": 4,
+              "hallucinated": [],
+              "hallucination_rate": 0.0
+            },
+            "dropped": 0,
+            "report_source": "mixed",
+            "answer_violations": [],
+            "degraded": false,
+            "degrade_reasons": [],
+            "tool_failures": 0,
+            "tool_timeouts": 0,
+            "budget_refusals": 0,
+            "budget": {
+              "tool_calls_used": 1,
+              "tool_calls_limit": 6,
+              "exhausted": false,
+              "reason": null
+            },
+            "model_calls": 3,
+            "evidence_count": 2,
+            "thread_evidence_count": 6,
+            "elapsed_ms": 38.13,
+            "tokens": {
+              "prompt": 3910,
+              "tool_output": 273,
+              "answer": 17,
+              "context_after": 703,
+              "total": 4200
+            },
+            "answer": "2026 年 9 月营业额 40000 元，较上期上升（f0.e1）。",
+            "notes": []
+          },
+          "report": {
+            "status": "ok",
+            "source": "mixed",
+            "dropped": 0,
+            "facts": [
+              {
+                "text": "上个月营业额 40000 元。",
+                "evidence_refs": [
+                  "f0.e1"
+                ]
+              }
+            ],
+            "inferences": [],
+            "checks": []
+          }
+        }
+      ]
+    },
+    {
+      "id": "invented_number",
+      "description": "模型编造证据之外的数字，回答被证据校验替换",
+      "passed": true,
+      "failures": [],
+      "turns": [
+        {
+          "question": "最近7天营业额是多少？",
+          "expect": {
+            "tools": [
+              "resolve_time_range",
+              "get_diagnosis"
+            ],
+            "window_accuracy": 1.0,
+            "window_mismatches": 0,
+            "resolved_window_ok": true,
+            "budget_used": 1,
+            "budget_exhausted": false,
+            "budget_refusals": 0,
+            "tool_failures": 0,
+            "tool_timeouts": 0,
+            "dropped": 1,
+            "report_source": "mixed",
+            "degraded": true,
+            "degrade_reasons": [
+              "answer_guardrail_violation"
+            ],
+            "min_citation_validity": 1.0,
+            "min_number_hallucinations": 1,
+            "answer_violations": true,
+            "min_thread_evidence_count": 1
+          },
+          "metrics": {
+            "turn_index": 1,
+            "question": "最近7天营业额是多少？",
+            "tools": [
+              "resolve_time_range",
+              "get_diagnosis"
+            ],
+            "tool_selection_match": true,
+            "window": {
+              "expected_start_date": "2026-10-05",
+              "expected_end_date": "2026-10-11",
+              "resolved_start_date": "2026-10-05",
+              "resolved_end_date": "2026-10-11",
+              "resolved_window_ok": true,
+              "dated_calls": 1,
+              "matching_calls": 1,
+              "accuracy": 1.0,
+              "mismatches": 0
+            },
+            "citation": {
+              "total": 2,
+              "valid": 2,
+              "missing": 0,
+              "validity": 1.0
+            },
+            "numbers": {
+              "total": 2,
+              "hallucinated": [
+                99999.0,
+                99999.0
+              ],
+              "hallucination_rate": 1.0
+            },
+            "dropped": 1,
+            "report_source": "mixed",
+            "answer_violations": [
+              "出现证据之外的数字 99999.0"
+            ],
+            "degraded": true,
+            "degrade_reasons": [
+              "answer_guardrail_violation"
+            ],
+            "tool_failures": 0,
+            "tool_timeouts": 0,
+            "budget_refusals": 0,
+            "budget": {
+              "tool_calls_used": 1,
+              "tool_calls_limit": 6,
+              "exhausted": false,
+              "reason": null
+            },
+            "model_calls": 3,
+            "evidence_count": 4,
+            "thread_evidence_count": 4,
+            "elapsed_ms": 35.012,
+            "tokens": {
+              "prompt": 2937,
+              "tool_output": 377,
+              "answer": 108,
+              "context_after": 448,
+              "total": 3422
+            },
+            "answer": "总店 2026-10-05 至 2026-10-11：订单 320 单，营业额 9600.0 元，客单价 30.0 元。检测到异常：营业额 -19.2%；招牌菜销量 -40.0%。规则分析：营业额较上期下降。建议核查：本次没有展开该菜品的逐日明细，无法判断是单日塌方还是整期缓降，需要人工核查它在该区间的每日出单情况。",
+            "notes": [
+              "有 1 条模型结论因引用或数字无法验证而被丢弃。",
+              "模型回答未通过证据校验（出现证据之外的数字 99999.0），已替换为受控的确定性摘要。"
+            ]
+          },
+          "report": {
+            "status": "ok",
+            "source": "mixed",
+            "dropped": 1,
+            "facts": [
+              {
+                "text": "营业额下降 19.2%（本期 9600.0，上期 11880.0，严重）。",
+                "evidence_refs": [
+                  "f0.e1",
+                  "f0.e2"
+                ]
+              },
+              {
+                "text": "招牌菜销量下降 40.0%（本期 96，上期 160，严重）。",
+                "evidence_refs": [
+                  "f2.e1",
+                  "f2.e2"
+                ]
+              }
+            ],
+            "inferences": [
+              {
+                "text": "营业额较上期下降。",
+                "evidence_refs": [
+                  "f0.e1"
+                ]
+              }
+            ],
+            "checks": [
+              {
+                "text": "本次没有展开该菜品的逐日明细，无法判断是单日塌方还是整期缓降，需要人工核查它在该区间的每日出单情况。",
+                "evidence_refs": [
+                  "f2.e1",
+                  "f2.e2"
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "invalid_ref",
+      "description": "模型引用不存在的证据，所有结论被丢弃并回落规则报告",
+      "passed": true,
+      "failures": [],
+      "turns": [
+        {
+          "question": "最近7天有什么异常？",
+          "expect": {
+            "tools": [
+              "resolve_time_range",
+              "get_diagnosis"
+            ],
+            "window_accuracy": 1.0,
+            "window_mismatches": 0,
+            "resolved_window_ok": true,
+            "budget_used": 1,
+            "budget_exhausted": false,
+            "budget_refusals": 0,
+            "tool_failures": 0,
+            "tool_timeouts": 0,
+            "dropped": 2,
+            "report_source": "rule",
+            "degraded": true,
+            "degrade_reasons": [
+              "all_claims_rejected"
+            ],
+            "max_citation_validity": 0.0,
+            "max_number_hallucinations": 0,
+            "answer_violations": false,
+            "min_thread_evidence_count": 1
+          },
+          "metrics": {
+            "turn_index": 1,
+            "question": "最近7天有什么异常？",
+            "tools": [
+              "resolve_time_range",
+              "get_diagnosis"
+            ],
+            "tool_selection_match": true,
+            "window": {
+              "expected_start_date": "2026-10-05",
+              "expected_end_date": "2026-10-11",
+              "resolved_start_date": "2026-10-05",
+              "resolved_end_date": "2026-10-11",
+              "resolved_window_ok": true,
+              "dated_calls": 1,
+              "matching_calls": 1,
+              "accuracy": 1.0,
+              "mismatches": 0
+            },
+            "citation": {
+              "total": 2,
+              "valid": 0,
+              "missing": 0,
+              "validity": 0.0
+            },
+            "numbers": {
+              "total": 0,
+              "hallucinated": [],
+              "hallucination_rate": 0.0
+            },
+            "dropped": 2,
+            "report_source": "rule",
+            "answer_violations": [],
+            "degraded": true,
+            "degrade_reasons": [
+              "all_claims_rejected"
+            ],
+            "tool_failures": 0,
+            "tool_timeouts": 0,
+            "budget_refusals": 0,
+            "budget": {
+              "tool_calls_used": 1,
+              "tool_calls_limit": 6,
+              "exhausted": false,
+              "reason": null
+            },
+            "model_calls": 3,
+            "evidence_count": 4,
+            "thread_evidence_count": 4,
+            "elapsed_ms": 32.878,
+            "tokens": {
+              "prompt": 2934,
+              "tool_output": 377,
+              "answer": 10,
+              "context_after": 447,
+              "total": 3321
+            },
+            "answer": "请核对数据后再判断。",
+            "notes": [
+              "有 2 条模型结论因引用或数字无法验证而被丢弃。"
+            ]
+          },
+          "report": {
+            "status": "ok",
+            "source": "rule",
+            "dropped": 2,
+            "facts": [
+              {
+                "text": "营业额下降 19.2%（本期 9600.0，上期 11880.0，严重）。",
+                "evidence_refs": [
+                  "f0.e1",
+                  "f0.e2"
+                ]
+              },
+              {
+                "text": "招牌菜销量下降 40.0%（本期 96，上期 160，严重）。",
+                "evidence_refs": [
+                  "f2.e1",
+                  "f2.e2"
+                ]
+              }
+            ],
+            "inferences": [
+              {
+                "text": "整店订单量没有明显变化，而这些菜品销量明显下滑，问题更可能集中在个别菜品而不是全店客流。",
+                "evidence_refs": [
+                  "f2.e1",
+                  "f2.e2"
+                ]
+              }
+            ],
+            "checks": [
+              {
+                "text": "本次没有展开该菜品的逐日明细，无法判断是单日塌方还是整期缓降，需要人工核查它在该区间的每日出单情况。",
+                "evidence_refs": [
+                  "f2.e1",
+                  "f2.e2"
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "budget_exhausted",
+      "description": "工具预算用尽后拒绝继续调查，回答仍基于已有证据",
+      "passed": true,
+      "failures": [],
+      "turns": [
+        {
+          "question": "最近7天详细查一下营业额和单品，再看看同业。",
+          "expect": {
+            "tools": [
+              "resolve_time_range",
+              "get_diagnosis",
+              "get_daily_series",
+              "get_dish_daily",
+              "compare_peers"
+            ],
+            "window_accuracy": 1.0,
+            "window_mismatches": 0,
+            "resolved_window_ok": true,
+            "budget_used": 2,
+            "budget_exhausted": true,
+            "budget_refusals": 2,
+            "tool_failures": 0,
+            "tool_timeouts": 0,
+            "dropped": 0,
+            "report_source": "mixed",
+            "degraded": true,
+            "degrade_reasons": [
+              "tool_call_limit"
+            ],
+            "min_citation_validity": 1.0,
+            "max_number_hallucinations": 0,
+            "answer_violations": false,
+            "min_thread_evidence_count": 1
+          },
+          "metrics": {
+            "turn_index": 1,
+            "question": "最近7天详细查一下营业额和单品，再看看同业。",
+            "tools": [
+              "resolve_time_range",
+              "get_diagnosis",
+              "get_daily_series",
+              "get_dish_daily",
+              "compare_peers"
+            ],
+            "tool_selection_match": true,
+            "window": {
+              "expected_start_date": "2026-10-05",
+              "expected_end_date": "2026-10-11",
+              "resolved_start_date": "2026-10-05",
+              "resolved_end_date": "2026-10-11",
+              "resolved_window_ok": true,
+              "dated_calls": 4,
+              "matching_calls": 4,
+              "accuracy": 1.0,
+              "mismatches": 0
+            },
+            "citation": {
+              "total": 1,
+              "valid": 1,
+              "missing": 0,
+              "validity": 1.0
+            },
+            "numbers": {
+              "total": 2,
+              "hallucinated": [],
+              "hallucination_rate": 0.0
+            },
+            "dropped": 0,
+            "report_source": "mixed",
+            "answer_violations": [],
+            "degraded": true,
+            "degrade_reasons": [
+              "tool_call_limit"
+            ],
+            "tool_failures": 0,
+            "tool_timeouts": 0,
+            "budget_refusals": 2,
+            "budget": {
+              "tool_calls_used": 2,
+              "tool_calls_limit": 2,
+              "exhausted": true,
+              "reason": "tool_call_limit"
+            },
+            "model_calls": 6,
+            "evidence_count": 12,
+            "thread_evidence_count": 11,
+            "elapsed_ms": 47.272,
+            "tokens": {
+              "prompt": 7839,
+              "tool_output": 730,
+              "answer": 24,
+              "context_after": 917,
+              "total": 8593
+            },
+            "answer": "本期营业额 9600 元；部分检查因工具预算用尽未执行（f0.e1）。",
+            "notes": []
+          },
+          "report": {
+            "status": "ok",
+            "source": "mixed",
+            "dropped": 0,
+            "facts": [
+              {
+                "text": "本期营业额 9600 元。",
+                "evidence_refs": [
+                  "f0.e1"
+                ]
+              }
+            ],
+            "inferences": [
+              {
+                "text": "整店订单量没有明显变化，而这些菜品销量明显下滑，问题更可能集中在个别菜品而不是全店客流。",
+                "evidence_refs": [
+                  "f2.e1",
+                  "f2.e2"
+                ]
+              }
+            ],
+            "checks": [
+              {
+                "text": "本次没有展开该菜品的逐日明细，无法判断是单日塌方还是整期缓降，需要人工核查它在该区间的每日出单情况。",
+                "evidence_refs": [
+                  "f2.e1",
+                  "f2.e2"
+                ]
+              },
+              {
+                "text": "本次调查因工具调用或循环上限提前结束，未执行：get_business_profile、get_dish_daily、compare_peers、get_operational_changes；相关结论需要人工核查。",
+                "evidence_refs": []
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "degraded_probes",
+      "description": "单个工具超时或报错时降级为观察结果，调查继续完成",
+      "passed": true,
+      "failures": [],
+      "turns": [
+        {
+          "question": "最近7天逐日和同业都看一下。",
+          "expect": {
+            "tools": [
+              "resolve_time_range",
+              "get_diagnosis",
+              "get_daily_series",
+              "compare_peers"
+            ],
+            "window_accuracy": 1.0,
+            "window_mismatches": 0,
+            "resolved_window_ok": true,
+            "budget_used": 3,
+            "budget_exhausted": false,
+            "budget_refusals": 0,
+            "tool_failures": 1,
+            "tool_timeouts": 1,
+            "dropped": 0,
+            "report_source": "mixed",
+            "degraded": true,
+            "degrade_reasons": [
+              "tool_timeout",
+              "tool_failed"
+            ],
+            "min_citation_validity": 1.0,
+            "max_number_hallucinations": 0,
+            "answer_violations": false,
+            "min_thread_evidence_count": 1
+          },
+          "metrics": {
+            "turn_index": 1,
+            "question": "最近7天逐日和同业都看一下。",
+            "tools": [
+              "resolve_time_range",
+              "get_diagnosis",
+              "get_daily_series",
+              "compare_peers"
+            ],
+            "tool_selection_match": true,
+            "window": {
+              "expected_start_date": "2026-10-05",
+              "expected_end_date": "2026-10-11",
+              "resolved_start_date": "2026-10-05",
+              "resolved_end_date": "2026-10-11",
+              "resolved_window_ok": true,
+              "dated_calls": 3,
+              "matching_calls": 3,
+              "accuracy": 1.0,
+              "mismatches": 0
+            },
+            "citation": {
+              "total": 2,
+              "valid": 2,
+              "missing": 0,
+              "validity": 1.0
+            },
+            "numbers": {
+              "total": 2,
+              "hallucinated": [],
+              "hallucination_rate": 0.0
+            },
+            "dropped": 0,
+            "report_source": "mixed",
+            "answer_violations": [],
+            "degraded": true,
+            "degrade_reasons": [
+              "tool_timeout",
+              "tool_failed"
+            ],
+            "tool_failures": 1,
+            "tool_timeouts": 1,
+            "budget_refusals": 0,
+            "budget": {
+              "tool_calls_used": 3,
+              "tool_calls_limit": 6,
+              "exhausted": false,
+              "reason": null
+            },
+            "model_calls": 5,
+            "evidence_count": 4,
+            "thread_evidence_count": 4,
+            "elapsed_ms": 251.197,
+            "tokens": {
+              "prompt": 5659,
+              "tool_output": 449,
+              "answer": 20,
+              "context_after": 590,
+              "total": 6128
+            },
+            "answer": "本期营业额 9600 元；逐日与同业检查未完成（f0.e1）。",
+            "notes": []
+          },
+          "report": {
+            "status": "ok",
+            "source": "mixed",
+            "dropped": 0,
+            "facts": [
+              {
+                "text": "本期营业额 9600 元。",
+                "evidence_refs": [
+                  "f0.e1"
+                ]
+              }
+            ],
+            "inferences": [
+              {
+                "text": "整店订单量没有明显变化，而这些菜品销量明显下滑，问题更可能集中在个别菜品而不是全店客流。",
+                "evidence_refs": [
+                  "f2.e1",
+                  "f2.e2"
+                ]
+              }
+            ],
+            "checks": [
+              {
+                "text": "人工核对逐日营业额与同业对比。",
+                "evidence_refs": [
+                  "f0.e1"
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "window_recovery",
+      "description": "模型先用错误窗口查询，收到窗口不一致后按解析窗口重试",
+      "passed": true,
+      "failures": [],
+      "turns": [
+        {
+          "question": "最近7天生意如何？",
+          "expect": {
+            "tools": [
+              "resolve_time_range",
+              "get_diagnosis",
+              "get_diagnosis"
+            ],
+            "window_accuracy": 0.5,
+            "window_mismatches": 1,
+            "resolved_window_ok": true,
+            "budget_used": 2,
+            "budget_exhausted": false,
+            "budget_refusals": 0,
+            "tool_failures": 0,
+            "tool_timeouts": 0,
+            "dropped": 0,
+            "report_source": "mixed",
+            "degraded": false,
+            "degrade_reasons": [],
+            "min_citation_validity": 1.0,
+            "max_number_hallucinations": 0,
+            "answer_violations": false,
+            "min_thread_evidence_count": 1
+          },
+          "metrics": {
+            "turn_index": 1,
+            "question": "最近7天生意如何？",
+            "tools": [
+              "resolve_time_range",
+              "get_diagnosis",
+              "get_diagnosis"
+            ],
+            "tool_selection_match": true,
+            "window": {
+              "expected_start_date": "2026-10-05",
+              "expected_end_date": "2026-10-11",
+              "resolved_start_date": "2026-10-05",
+              "resolved_end_date": "2026-10-11",
+              "resolved_window_ok": true,
+              "dated_calls": 2,
+              "matching_calls": 1,
+              "accuracy": 0.5,
+              "mismatches": 1
+            },
+            "citation": {
+              "total": 1,
+              "valid": 1,
+              "missing": 0,
+              "validity": 1.0
+            },
+            "numbers": {
+              "total": 7,
+              "hallucinated": [],
+              "hallucination_rate": 0.0
+            },
+            "dropped": 0,
+            "report_source": "mixed",
+            "answer_violations": [],
+            "degraded": false,
+            "degrade_reasons": [],
+            "tool_failures": 0,
+            "tool_timeouts": 0,
+            "budget_refusals": 0,
+            "budget": {
+              "tool_calls_used": 2,
+              "tool_calls_limit": 6,
+              "exhausted": false,
+              "reason": null
+            },
+            "model_calls": 4,
+            "evidence_count": 4,
+            "thread_evidence_count": 4,
+            "elapsed_ms": 42.78,
+            "tokens": {
+              "prompt": 4016,
+              "tool_output": 444,
+              "answer": 19,
+              "context_after": 546,
+              "total": 4479
+            },
+            "answer": "2026 年 10 月 5 日至 10 月 11 日营业额 9600 元（f0.e1）。",
+            "notes": []
+          },
+          "report": {
+            "status": "ok",
+            "source": "mixed",
+            "dropped": 0,
+            "facts": [
+              {
+                "text": "本期营业额 9600 元。",
+                "evidence_refs": [
+                  "f0.e1"
+                ]
+              }
+            ],
+            "inferences": [
+              {
+                "text": "整店订单量没有明显变化，而这些菜品销量明显下滑，问题更可能集中在个别菜品而不是全店客流。",
+                "evidence_refs": [
+                  "f2.e1",
+                  "f2.e2"
+                ]
+              }
+            ],
+            "checks": [
+              {
+                "text": "本次没有展开该菜品的逐日明细，无法判断是单日塌方还是整期缓降，需要人工核查它在该区间的每日出单情况。",
+                "evidence_refs": [
+                  "f2.e1",
+                  "f2.e2"
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "business_profile",
+      "description": "预订健康度、时段/星期分布、订单类型结构与上周/去年同期基线",
+      "passed": true,
+      "failures": [],
+      "turns": [
+        {
+          "question": "最近7天预订和时段分布怎么样？和上周、去年同期比如何？",
+          "expect": {
+            "tools": [
+              "resolve_time_range",
+              "get_business_profile"
+            ],
+            "window_accuracy": 1.0,
+            "window_mismatches": 0,
+            "resolved_window_ok": true,
+            "budget_used": 1,
+            "budget_exhausted": false,
+            "budget_refusals": 0,
+            "tool_failures": 0,
+            "tool_timeouts": 0,
+            "dropped": 0,
+            "report_source": "mixed",
+            "degraded": false,
+            "degrade_reasons": [],
+            "min_citation_validity": 1.0,
+            "max_number_hallucinations": 0,
+            "answer_violations": false,
+            "min_thread_evidence_count": 6
+          },
+          "metrics": {
+            "turn_index": 1,
+            "question": "最近7天预订和时段分布怎么样？和上周、去年同期比如何？",
+            "tools": [
+              "resolve_time_range",
+              "get_business_profile"
+            ],
+            "tool_selection_match": true,
+            "window": {
+              "expected_start_date": "2026-10-05",
+              "expected_end_date": "2026-10-11",
+              "resolved_start_date": "2026-10-05",
+              "resolved_end_date": "2026-10-11",
+              "resolved_window_ok": true,
+              "dated_calls": 1,
+              "matching_calls": 1,
+              "accuracy": 1.0,
+              "mismatches": 0
+            },
+            "citation": {
+              "total": 6,
+              "valid": 6,
+              "missing": 0,
+              "validity": 1.0
+            },
+            "numbers": {
+              "total": 24,
+              "hallucinated": [],
+              "hallucination_rate": 0.0
+            },
+            "dropped": 0,
+            "report_source": "mixed",
+            "answer_violations": [],
+            "degraded": false,
+            "degrade_reasons": [],
+            "tool_failures": 0,
+            "tool_timeouts": 0,
+            "budget_refusals": 0,
+            "budget": {
+              "tool_calls_used": 1,
+              "tool_calls_limit": 6,
+              "exhausted": false,
+              "reason": null
+            },
+            "model_calls": 3,
+            "evidence_count": 6,
+            "thread_evidence_count": 6,
+            "elapsed_ms": 36.456,
+            "tokens": {
+              "prompt": 4367,
+              "tool_output": 1763,
+              "answer": 97,
+              "context_after": 1850,
+              "total": 6227
+            },
+            "answer": "2026 年 10 月 5 日至 10 月 11 日成交 320 单，堂食占 70%；周六 60 单最高，18 点和 19 点是时段高峰。预订 60 条，取消 8 条（取消率 13.33%），疑似未到店 5 条（9.62%）。订单量较上周同星期回落，较去年同期增长 6.67%（profile1.t1、profile1.w1、profile1.h1、profile1.r1、profile1.b1、profile1.b2）。",
+            "notes": []
+          },
+          "report": {
+            "status": "insufficient_data",
+            "source": "mixed",
+            "dropped": 0,
+            "facts": [
+              {
+                "text": "预订 60 条，取消 8 条，疑似未到店 5 条。",
+                "evidence_refs": [
+                  "profile1.r1"
+                ]
+              },
+              {
+                "text": "堂食成交占 70%，周六 60 单为最高。",
+                "evidence_refs": [
+                  "profile1.t1",
+                  "profile1.w1"
+                ]
+              }
+            ],
+            "inferences": [
+              {
+                "text": "订单量较上周同星期回落，较去年同期增长 6.67%。",
+                "evidence_refs": [
+                  "profile1.b1",
+                  "profile1.b2"
+                ]
+              }
+            ],
+            "checks": [
+              {
+                "text": "核对 18 点至 19 点高峰时段的现场记录与出餐能力。",
+                "evidence_refs": [
+                  "profile1.h1"
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

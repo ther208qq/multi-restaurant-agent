@@ -9,7 +9,7 @@
 目前项目后端与 Agent 耦合较高，模块职责和边界不清晰：
 
 - **API 层直接访问数据库**：`routes/*`（如 `staff_orders.py`、`staff_reservations.py`、`branches.py`）直接用 SQLAlchemy `select/update` 操作 DB。
-- **Agent 直接访问数据库**：`agent/tools/*` 与部分 `agent/nodes/*`（`status_node.py`、`branch_selector.py`）用 `AsyncSessionLocal()` 直连 DB。
+- **Agent 直接访问数据库**：`agent/tools/*` 与部分 `agent/nodes/*`（`status_node.py`、`branch_selector.py`）用 `AsyncSessionLocal()` 直连 DB。（历史背景：这些实现已在后续重构中改为经 Service；`agent/nodes/` 及仅服务于旧聊天图的 tools 已于 2026-10-17 随旧图删除。）
 - **API 反向依赖 Agent**：`routes/branches.py` 直接 import 并调用 `agent/tools/*` 的函数。
 - **同一业务重复实现**：库存扣减/回补逻辑同时存在于 API（`staff_orders.py`）与 Agent（`order_tools.py`），价格/总价计算亦各算一次。
 

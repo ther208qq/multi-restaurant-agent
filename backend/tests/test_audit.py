@@ -24,6 +24,7 @@ from backend.app.exceptions import (
     ValidationError,
 )
 from backend.app.models.branch import Branch, Table
+from backend.app.models.audit import AuditLog
 from backend.app.models.menu import MenuCategory, MenuItem, MenuItemStock
 from backend.app.models.user import Customer, StaffUser
 from backend.app.repo.reservation import ReservationRepo
@@ -467,3 +468,44 @@ async def test_audit_log_route_is_branch_scoped(async_client):
     rows = resp.json()
     # The foreign branch_id is ignored: only branch A's own trail is visible.
     assert rows and {row["branch_id"] for row in rows} == {branch_a}
+
+
+async def test_audit_listing_filters_by_window_and_action_set():
+    """Task43: the investigation can ask "what changed in this window?" once.
+
+    Rows are inserted with explicit timestamps so the assertions pin the
+    half-open ``[start, end)`` rule rather than the test run's clock.
+    """
+    branch_id, _ = await _make_branch(label="__au_window")
+    base = datetime(2030, 1, 1, 12, tzinfo=timezone.utc)
+    async with transactional_session() as s:
+        for offset, action in (
+            (0, "stock.updated"),
+            (1, "menu_item.updated"),
+            (2, "order.created"),
+            (3, "stock.updated"),
+        ):
+            s.add(
+                AuditLog(
+                    created_at=base + timedelta(days=offset),
+                    actor_type="system",
+                    branch_id=branch_id,
+                    action=action,
+                    entity_type="menu_item",
+                    entity_id=1,
+                    details={},
+                )
+            )
+
+    admin = await _load_staff(await _make_staff(role="admin"))
+    rows = await AuditService.list_logs(
+        admin,
+        branch_id=branch_id,
+        actions=["stock.updated", "menu_item.updated"],
+        start=base,
+        end=base + timedelta(days=2),
+        limit=10,
+    )
+
+    # Newest first, only the two requested actions, only the half-open window.
+    assert [row.action for row in rows] == ["menu_item.updated", "stock.updated"]

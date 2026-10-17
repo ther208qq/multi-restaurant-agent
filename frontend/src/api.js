@@ -129,12 +129,6 @@ export const api = {
     return res;
   },
 
-  customerMe: async () => {
-    const user = await request('/auth/me', { method: 'GET' }, 'customer');
-    setStoredCustomer(user);
-    return user;
-  },
-
   // Branches & Menu Explorer
   getBranches: () => request('/branches', { method: 'GET' }),
   getBranchMenu: (branchId) => request(`/branches/${branchId}/menu`, { method: 'GET' }),
@@ -218,6 +212,11 @@ export const api = {
     ),
 
   // Staff Auth
+  // Which demo account set the running backend actually contains. The login
+  // modal must not assume the development seed: the API may be serving the
+  // isolated evaluation database, which has eval_admin / eval_staff instead.
+  getLoginHints: () => request('/staff/login-hints', { method: 'GET' }),
+
   staffLogin: async (username, password) => {
     const res = await request('/staff/login', {
       method: 'POST',
@@ -226,12 +225,6 @@ export const api = {
     setStaffToken(res.access_token);
     setStoredStaff(res.user);
     return res;
-  },
-
-  staffMe: async () => {
-    const user = await request('/staff/me', { method: 'GET' }, 'staff');
-    setStoredStaff(user);
-    return user;
   },
 
   // Staff Orders. The list is bounded server-side (100 by default, 500 max) so
@@ -343,6 +336,19 @@ export const api = {
     return request(`/staff/diagnosis${qs}`, { method: 'GET' }, 'staff');
   },
 
+  // Agentic investigation: the Agent chooses the window from the question.
+  // ``thread_id`` from the first response makes the next call a follow-up on
+  // the same LangGraph checkpoint instead of a new conversation.
+  investigateDiagnosis: (payload) =>
+    request(
+      '/staff/diagnosis/investigate',
+      {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      },
+      'staff'
+    ),
+
   // Same-window peer comparison: its own entry, not part of the diagnosis body.
   getBranchPeers: (branchId = null, startDate = null, endDate = null) => {
     const params = new URLSearchParams();
@@ -354,10 +360,6 @@ export const api = {
   },
 
   // Staff Menu & Stock
-  getStaffCategories: (branchId = null) => {    const qs = branchId ? `?branch_id=${branchId}` : '';
-    return request(`/staff/menu/categories${qs}`, { method: 'GET' }, 'staff');
-  },
-
   createCategory: (payload) =>
     request(
       '/staff/menu/categories',
@@ -403,28 +405,6 @@ export const api = {
     ),
 
   // Staff Branches & Tables
-  getStaffBranches: () => request('/staff/branches', { method: 'GET' }, 'staff'),
-
-  createBranch: (payload) =>
-    request(
-      '/staff/branches',
-      {
-        method: 'POST',
-        body: JSON.stringify(payload),
-      },
-      'staff'
-    ),
-
-  updateBranch: (branchId, payload) =>
-    request(
-      `/staff/branches/${branchId}`,
-      {
-        method: 'PATCH',
-        body: JSON.stringify(payload),
-      },
-      'staff'
-    ),
-
   getStaffTables: (branchId = null) => {
     const qs = branchId ? `?branch_id=${branchId}` : '';
     return request(`/staff/branches/tables${qs}`, { method: 'GET' }, 'staff');

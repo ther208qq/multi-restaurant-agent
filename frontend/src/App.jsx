@@ -146,8 +146,7 @@ export default function App() {
 
   const removeCart = (key) => setCart((prev) => prev.filter((l) => l.key !== key));
 
-  // Booking and checkout both need an account; nudge to login first, like the
-  // "ask the AI" flow does.
+  // Booking and checkout both need an account; nudge to login first.
   const handleOpenReservation = () => {
     if (!currentCustomer) {
       setIsCustomerAuthOpen(true);
@@ -197,9 +196,9 @@ export default function App() {
 
       {/* Main Viewport */}
       {currentView === 'customer' ? (
-        <main className="chat-page">
+        <main className="customer-page">
           {/* Left Sidebar: Branch Info & Cart */}
-          <aside className="chat-sidebar">
+          <aside className="customer-sidebar">
             <BranchSelector
               branches={branches}
               selectedBranchId={selectedBranchId}

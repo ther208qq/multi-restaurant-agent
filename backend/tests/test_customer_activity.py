@@ -1,18 +1,16 @@
 """Task12 tests: customer activity queries served through the Services.
 
-The ``/orders/me`` and ``/reservations/me`` routes and the Agent ``status_node``
-read the customer's history through OrderService / ReservationService -- this
-suite proves the behavior is preserved and that neither holds a query of its own.
+The ``/orders/me`` and ``/reservations/me`` routes read the customer's history
+through OrderService / ReservationService. The legacy Agent ``status_node``
+tests were removed with the unwired chat graph; the same Service paths remain
+covered here through the HTTP routes.
 """
 
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
 from uuid import uuid4
 
 from sqlalchemy import delete
 
-from backend.app.agent.nodes import status_node as status_node_module
-from backend.app.agent.nodes.status_node import status_node
 from backend.app.auth.security import create_access_token
 from backend.app.database import transactional_session
 from backend.app.models.menu import MenuCategory, MenuItem, MenuItemStock
@@ -22,9 +20,6 @@ from backend.app.models.user import Customer
 from backend.app.service.auth import AuthService
 from backend.app.service.order import OrderService
 from backend.app.service.reservation import ReservationService
-
-NODE_SOURCE = Path(status_node_module.__file__).read_text(encoding="utf-8")
-
 
 def _email() -> str:
     return f"__ca_{uuid4().hex}@example.com"
@@ -79,15 +74,6 @@ async def _cleanup(customer_id=None, cat_id=None):
             await s.execute(delete(MenuCategory).where(MenuCategory.id == cat_id))
         if customer_id is not None:
             await s.execute(delete(Customer).where(Customer.id == customer_id))
-
-
-def test_status_node_has_no_direct_db_access():
-    """The node must not open sessions or import SQLAlchemy itself."""
-    assert "AsyncSessionLocal" not in NODE_SOURCE
-    assert "sqlalchemy" not in NODE_SOURCE
-    assert "select(" not in NODE_SOURCE
-    assert "OrderService" in NODE_SOURCE
-    assert "ReservationService" in NODE_SOURCE
 
 
 async def test_my_orders_lists_customer_orders(async_client):
@@ -149,31 +135,3 @@ async def test_my_orders_requires_auth(async_client):
     assert (await async_client.get("/api/orders/me")).status_code == 401
     assert (await async_client.get("/api/reservations/me")).status_code == 401
 
-
-async def test_status_node_reports_activity():
-    item_id, cat_id = await _make_item()
-    customer_id = await _make_customer()
-    try:
-        order = await OrderService.place_order(
-            customer_id, 1, "pickup", [{"menu_item_id": item_id, "quantity": 1}]
-        )
-        reservation = await ReservationService.book_table(
-            customer_id=customer_id, branch_id=1, start_time=_slot(701, 19), party_size=2
-        )
-        result = await status_node({"customer_id": customer_id, "branch_id": 1})
-        reply = result["last_reply"]
-        assert f"订单 #{order.id}" in reply
-        assert f"预订 #{reservation.id}" in reply
-        assert result["active_flow"] == "none"
-        assert result["messages"]
-    finally:
-        await _cleanup(customer_id=customer_id, cat_id=cat_id)
-
-
-async def test_status_node_empty_state():
-    customer_id = await _make_customer()
-    try:
-        result = await status_node({"customer_id": customer_id, "branch_id": 1})
-        assert "没有进行中的订单或预订" in result["last_reply"]
-    finally:
-        await _cleanup(customer_id=customer_id)

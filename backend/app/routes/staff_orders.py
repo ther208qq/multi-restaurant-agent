@@ -18,21 +18,30 @@ from backend.app.service.order import OrderService
 
 router = APIRouter(prefix="/staff/orders", tags=["Staff Orders Management"])
 
+# A staff list is an operational view, not a data export. Without a bound, a
+# branch with tens of thousands of orders returns a multi-megabyte payload on
+# every visit and the browser freezes rendering it. The newest orders are the
+# ones staff act on; the cap keeps the response small and the page usable.
+DEFAULT_LIST_LIMIT = 100
+MAX_LIST_LIMIT = 500
+
 
 @router.get("", response_model=List[OrderResponse])
 async def list_staff_orders(
     branch_id: Optional[int] = Query(None),
     order_status: Optional[str] = Query(None, alias="status"),
+    limit: int = Query(DEFAULT_LIST_LIMIT, ge=1, le=MAX_LIST_LIMIT),
     current_staff: StaffUser = Depends(get_current_staff),
     db: AsyncSession = Depends(get_db),
 ):
-    """List orders, optionally filtered by branch and status."""
+    """List the newest orders, optionally filtered by branch and status."""
     # Scoping: a branch-restricted staff member always sees their own branch;
     # otherwise the optional ?branch_id filter applies.
     effective_branch = current_staff.branch_id or branch_id
     orders = await OrderService.list_orders(
         branch_id=effective_branch,
         order_status=order_status,
+        limit=limit,
         session=db,
     )
     return [OrderResponse.from_order(o) for o in orders]

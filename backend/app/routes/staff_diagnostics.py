@@ -15,14 +15,19 @@ implementation of the rule to keep correct.
 from datetime import date
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.agent.diagnosis import analyze_diagnosis
+from backend.app.agent.diagnosis_investigation import run_investigation
 from backend.app.auth.security import get_current_staff
 from backend.app.database import get_db
 from backend.app.models.user import StaffUser
-from backend.app.schemas.diagnostics import DiagnosisResponse
+from backend.app.schemas.diagnostics import (
+    DiagnosisInvestigationRequest,
+    DiagnosisInvestigationResponse,
+    DiagnosisResponse,
+)
 from backend.app.service.diagnostics import DiagnosisService
 
 router = APIRouter(prefix="/staff/diagnosis", tags=["Staff Diagnosis"])
@@ -50,3 +55,26 @@ async def get_branch_diagnosis(
     )
     # The Agent adds ``analysis``; every other field is the Service's, untouched.
     return {**diagnosis, "analysis": await analyze_diagnosis(diagnosis)}
+
+
+@router.post("/investigate", response_model=DiagnosisInvestigationResponse)
+async def investigate_branch_diagnosis(
+    payload: DiagnosisInvestigationRequest,
+    request: Request,
+    current_staff: StaffUser = Depends(get_current_staff),
+    db: AsyncSession = Depends(get_db),
+):
+    """Ask the read-only investigation Agent a question about this branch.
+
+    The Agent picks the window (dates are optional), calls the bounded set of
+    read-only tools, and answers. ``thread_id`` from a previous response resumes
+    the same investigation; ownership and branch are checked before the graph
+    runs. An unavailable model yields the deterministic diagnosis with
+    ``status="llm_unavailable"`` rather than an error.
+    """
+    return await run_investigation(
+        payload,
+        current_staff,
+        db,
+        checkpointer=getattr(request.app.state, "checkpointer", None),
+    )

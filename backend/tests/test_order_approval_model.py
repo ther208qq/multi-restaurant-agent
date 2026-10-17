@@ -159,8 +159,8 @@ async def test_approval_repo_roundtrip():
             assert got.remark == '送个甜点'
             assert got.order.id == order_id  # relationship eager-loaded
 
-            by_order = await ApprovalRepo.get_by_order(s, order_id)
-            assert by_order.id == approval_id
+            by_order = await ApprovalRepo.list_by_orders(s, [order_id])
+            assert [a.id for a in by_order] == [approval_id]
 
             updated = await ApprovalRepo.update_status(s, got, 'approved')
             assert updated.status == 'approved'

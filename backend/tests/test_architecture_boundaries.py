@@ -11,9 +11,8 @@ Acceptance criteria encoded here (spec §6):
 * Agent - never touches Repo / API / the DB; reaches business logic through
   Service (directly or via a thin Tool).
 
-``routes/chat.py`` is allowed to import ``agent.graph`` / ``agent.checkpointer``
-because that endpoint *is* the agent's HTTP entry point; the ban is on the
-business layer under ``agent.tools``.
+``backend.app.agent.checkpointer`` is infrastructure: routes may import it, and
+the ban is on the business layer under ``agent.tools``.
 """
 
 import ast
@@ -150,7 +149,7 @@ def test_scanner_detects_prefix_violations():
     """Dotted prefixes are enforced as whole segments, not substrings."""
     source = (
         "from backend.app.repo.branch import BranchRepo\n"
-        "from backend.app.agent.tools import menu_tools\n"
+        "from backend.app.agent.tools import kds_tools\n"
         "from backend.app.repofoo import typo\n"
     )
     found = violations_in_source(
@@ -176,10 +175,9 @@ def test_scanner_allows_layering_imports():
 
 
 def test_scanner_allows_routes_agent_entrypoints():
-    """The chat endpoint may import the agent graph; Service imports stay legal."""
+    """Agent infrastructure imports stay legal; only agent tools are banned."""
     source = (
-        "from backend.app.agent.graph import build_restaurant_graph\n"
-        "from backend.app.agent.checkpointer import get_checkpointer\n"
+        "from backend.app.agent.checkpointer import init_postgres_checkpointer_tables\n"
         "from backend.app.service.branch import BranchService\n"
         "from backend.app.database import get_db\n"
     )

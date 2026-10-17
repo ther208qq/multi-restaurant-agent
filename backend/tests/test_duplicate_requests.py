@@ -4,8 +4,8 @@ Spec §9「经营统计与异常处理」requires the system to handle repeated 
 insufficient stock, booking conflicts and failed operations correctly. The Agent
 is the only place a request can arrive twice by accident -- a chat message sent
 twice, a retried request, or a small model emitting the same tool call twice in
-one turn -- so the tools submit with the duplicate guard on and these tests drive
-them at that level.
+one turn -- so the Service is exercised with the duplicate guard on, exactly as
+the Agent would call it.
 
 What "correct" means here:
 
@@ -26,10 +26,9 @@ from sqlalchemy import func, select, update
 
 import pytest
 
-from backend.app.agent.tools.order_tools import create_order_atomic
 from backend.app.agent.tools.table_tools import check_table_availability_and_book
 from backend.app.database import transactional_session
-from backend.app.exceptions import ConflictError
+from backend.app.exceptions import ConflictError, DomainError
 from backend.app.models.branch import Branch, Table
 from backend.app.models.menu import MenuCategory, MenuItem, MenuItemStock
 from backend.app.models.order import Order
@@ -161,13 +160,23 @@ def _slot(days=400, hour=19):
 
 
 async def _place(branch_id, customer_id, item_id, quantity, **kwargs):
-    return await create_order_atomic(
-        customer_id=customer_id,
-        branch_id=branch_id,
-        order_type=kwargs.pop("order_type", "dine_in"),
-        items=[{"menu_item_id": item_id, "quantity": quantity}],
-        **kwargs,
-    )
+    order_type = kwargs.pop("order_type", "dine_in")
+    try:
+        order = await OrderService.place_order(
+            customer_id,
+            branch_id,
+            order_type,
+            [{"menu_item_id": item_id, "quantity": quantity}],
+            deduplicate=True,
+            **kwargs,
+        )
+    except DomainError as exc:
+        return {"success": False, "error": exc.message}
+    return {
+        "success": True,
+        "order_id": order.id,
+        "total_amount": order.total_amount,
+    }
 
 
 # --------------------------------------------------------------------------- #
@@ -339,15 +348,20 @@ async def test_insufficient_stock_leaves_no_partial_state():
     ok_item = await _make_item(branch_id, stock=10)
     short_item = await _make_item(branch_id, stock=1)
 
-    result = await create_order_atomic(
-        customer_id=customer_id,
-        branch_id=branch_id,
-        order_type="dine_in",
-        items=[
-            {"menu_item_id": ok_item, "quantity": 2},
-            {"menu_item_id": short_item, "quantity": 3},
-        ],
-    )
+    try:
+        await OrderService.place_order(
+            customer_id,
+            branch_id,
+            "dine_in",
+            [
+                {"menu_item_id": ok_item, "quantity": 2},
+                {"menu_item_id": short_item, "quantity": 3},
+            ],
+            deduplicate=True,
+        )
+        result = {"success": True}
+    except DomainError as exc:
+        result = {"success": False, "error": exc.message}
 
     assert result["success"] is False
     assert "库存不足" in result["error"]

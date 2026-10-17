@@ -5,6 +5,7 @@ filtered listing, never commits, and never imports ``service`` / ``routes`` /
 ``agent``.
 """
 
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy import select
@@ -49,20 +50,35 @@ class AuditRepo:
         *,
         branch_id: Optional[int] = None,
         action: Optional[str] = None,
+        actions: Optional[List[str]] = None,
         entity_type: Optional[str] = None,
         entity_id: Optional[int] = None,
+        start: Optional[datetime] = None,
+        end: Optional[datetime] = None,
         limit: int = 50,
     ) -> List[AuditLog]:
-        """Most recent first."""
+        """Most recent first.
+
+        ``start`` is inclusive and ``end`` exclusive, matching the UTC day
+        half-open ranges used by the statistics layer. ``actions`` is an
+        alternative to the single ``action`` value for investigations that look
+        for any of several operational changes in one query.
+        """
         stmt = select(AuditLog).order_by(AuditLog.id.desc()).limit(limit)
         if branch_id is not None:
             stmt = stmt.where(AuditLog.branch_id == branch_id)
         if action:
             stmt = stmt.where(AuditLog.action == action)
+        if actions:
+            stmt = stmt.where(AuditLog.action.in_(actions))
         if entity_type:
             stmt = stmt.where(AuditLog.entity_type == entity_type)
         if entity_id is not None:
             stmt = stmt.where(AuditLog.entity_id == entity_id)
+        if start is not None:
+            stmt = stmt.where(AuditLog.created_at >= start)
+        if end is not None:
+            stmt = stmt.where(AuditLog.created_at < end)
         res = await session.execute(stmt)
         return list(res.scalars().all())
 

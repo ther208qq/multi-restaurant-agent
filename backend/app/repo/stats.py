@@ -25,6 +25,26 @@ _UTC_DAY = func.date_trunc("day", func.timezone("UTC", Order.created_at))
 
 class StatsRepo:
     @staticmethod
+    async def order_date_range(
+        session: AsyncSession,
+        *,
+        branch_id: int,
+    ) -> tuple:
+        """First and last order timestamp in the branch, or ``(None, None)``.
+
+        Used to describe what history the branch actually has, so a request for
+        "the last seven days" does not have to hit an empty window when the only
+        available data is historical. Every order status is included: even a
+        cancelled order proves the branch was recording data that day.
+        """
+        stmt = select(
+            func.min(Order.created_at).label("first_at"),
+            func.max(Order.created_at).label("last_at"),
+        ).where(Order.branch_id == branch_id)
+        row = (await session.execute(stmt)).one()
+        return row.first_at, row.last_at
+
+    @staticmethod
     async def order_totals(
         session: AsyncSession,
         *,
@@ -101,6 +121,106 @@ class StatsRepo:
                 "order_count": int(row.order_count or 0),
                 "revenue": float(row.revenue or 0),
                 "cancelled_count": int(row.cancelled_count or 0),
+            }
+            for row in res.all()
+        ]
+
+    @staticmethod
+    async def order_type_totals(
+        session: AsyncSession,
+        *,
+        branch_id: int,
+        start: datetime,
+        end: datetime,
+        sold_statuses: tuple,
+        cancelled_statuses: tuple,
+    ) -> List[Dict[str, Any]]:
+        """Sold/cancelled counts and revenue per order type in the window.
+
+        One row per type that has any order at all. The ``order_count`` and
+        ``revenue`` columns count sold orders only, matching every other
+        aggregate; ``cancelled_count`` is reported beside them rather than
+        folded in, so a type's structure never hides its cancellations.
+        """
+        stmt = (
+            select(
+                Order.order_type.label("order_type"),
+                func.count()
+                .filter(Order.status.in_(sold_statuses))
+                .label("order_count"),
+                func.coalesce(
+                    func.sum(Order.total_amount).filter(
+                        Order.status.in_(sold_statuses)
+                    ),
+                    0,
+                ).label("revenue"),
+                func.count()
+                .filter(Order.status.in_(cancelled_statuses))
+                .label("cancelled_count"),
+            )
+            .where(
+                Order.branch_id == branch_id,
+                Order.created_at >= start,
+                Order.created_at < end,
+            )
+            .group_by(Order.order_type)
+            .order_by(Order.order_type)
+        )
+        res = await session.execute(stmt)
+        return [
+            {
+                "order_type": row.order_type,
+                "order_count": int(row.order_count or 0),
+                "revenue": float(row.revenue or 0),
+                "cancelled_count": int(row.cancelled_count or 0),
+            }
+            for row in res.all()
+        ]
+
+    @staticmethod
+    async def weekday_hour_totals(
+        session: AsyncSession,
+        *,
+        branch_id: int,
+        start: datetime,
+        end: datetime,
+        sold_statuses: tuple,
+        timezone_name: str,
+    ) -> List[Dict[str, Any]]:
+        """Sold counts and revenue per weekday and hour *in a business timezone*.
+
+        The window is still the same half-open UTC range every other aggregate
+        uses, but each row's weekday (ISO 1=Monday...7=Sunday) and hour come
+        from the timestamp converted to ``timezone_name``. That is what makes a
+        12:00 lunch order show up at hour 12 instead of 04:00. One row per
+        (weekday, hour) cell that sold something; the Service pads the rest.
+        """
+        local_time = func.timezone(timezone_name, Order.created_at)
+        weekday = func.extract("isodow", local_time)
+        hour = func.extract("hour", local_time)
+        stmt = (
+            select(
+                weekday.label("weekday"),
+                hour.label("hour"),
+                func.count().label("order_count"),
+                func.coalesce(func.sum(Order.total_amount), 0).label("revenue"),
+            )
+            .where(
+                Order.branch_id == branch_id,
+                Order.created_at >= start,
+                Order.created_at < end,
+                Order.status.in_(sold_statuses),
+            )
+            .group_by(weekday, hour)
+            .order_by(weekday, hour)
+        )
+        res = await session.execute(stmt)
+        return [
+            {
+                "weekday": int(row.weekday),
+                "hour": int(row.hour),
+                "order_count": int(row.order_count or 0),
+                "revenue": float(row.revenue or 0),
             }
             for row in res.all()
         ]

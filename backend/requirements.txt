@@ -8,7 +8,10 @@ psycopg[binary]>=3.2.0
 psycopg-pool>=3.2.0
 langgraph>=0.2.20
 langgraph-checkpoint-postgres>=2.0.0
+langchain>=1.0.0
 langchain-core>=0.3.0
+langchain-openai>=0.3.0
+langchain-ollama>=0.2.0
 httpx>=0.27.2
 openai>=3.28.0
 pyjwt>=2.9.0
@@ -17,3 +20,6 @@ python-multipart>=0.0.12
 email-validator>=2.2.0
 pytest>=8.3.0
 pytest-asyncio>=0.24.0
+# zoneinfo database for BUSINESS_TIMEZONE on platforms without a system tzdata
+# (notably Windows); imported by backend.app.service.business_profile.
+tzdata>=2024.1

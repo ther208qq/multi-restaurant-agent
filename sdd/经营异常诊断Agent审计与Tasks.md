@@ -199,7 +199,7 @@ GET /staff/diagnosis
 
 ## 不做（明确排除）
 
-- 不恢复聊天入口，不重新接入旧 LangGraph 图（`agent/graph.py` 保持现状，不接线）。
+- 不恢复聊天入口；旧 LangGraph 图（`agent/graph.py`、`agent/nodes/`、`agent/state.py`、`agent/flows.py`、`agent/labels.py`）已于 2026-10-17 删除，原“保持现状、不接线”的保留决定作废。
 - 不新增多 Agent、记忆、向量库或任何新框架。
 - 不新增 repo 查询方法（MVP 零 repo 改动）。
 - 不做按小时/按时段/按渠道聚合。

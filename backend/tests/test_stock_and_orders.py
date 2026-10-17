@@ -4,11 +4,26 @@ import asyncio
 import pytest
 from sqlalchemy import select, update
 
-from backend.app.agent.tools.menu_tools import get_branch_menu_data
-from backend.app.agent.tools.order_tools import create_order_atomic
 from backend.app.database import AsyncSessionLocal
+from backend.app.exceptions import DomainError
 from backend.app.models.branch import Branch
 from backend.app.models.menu import MenuItem, MenuItemStock
+from backend.app.service.menu import MenuService
+from backend.app.service.order import OrderService
+
+
+async def _place(customer_id, branch_id, order_type, items):
+    """Place through OrderService, keeping the pass/fail shape these tests use."""
+    try:
+        order = await OrderService.place_order(customer_id, branch_id, order_type, items)
+    except DomainError as exc:
+        return {"success": False, "error": exc.message}
+    return {
+        "success": True,
+        "order_id": order.id,
+        "status": order.status,
+        "total_amount": order.total_amount,
+    }
 
 
 @pytest.mark.asyncio
@@ -35,7 +50,7 @@ async def test_order_rejection_when_exceeding_stock():
         await session.commit()
 
     # Attempt to order 5 units when only 2 exist
-    result = await create_order_atomic(
+    result = await _place(
         customer_id=1,
         branch_id=1,
         order_type="dine_in",
@@ -45,7 +60,7 @@ async def test_order_rejection_when_exceeding_stock():
     assert result["success"] is False
     assert "库存不足" in result["error"]
     assert "仅剩 2 份" in result["error"]
-    assert result.get("shortfall") == 3
+    assert "缺 3 份" in result["error"]
 
 
 @pytest.mark.asyncio
@@ -70,7 +85,7 @@ async def test_atomic_stock_decrement():
         await session.commit()
 
     # Order 3 pizzas
-    result = await create_order_atomic(
+    result = await _place(
         customer_id=1,
         branch_id=1,
         order_type="dine_in",
@@ -114,13 +129,13 @@ async def test_concurrent_orders_for_last_unit():
         await session.commit()
 
     # Launch two simultaneous order requests for the 1 unit
-    task1 = create_order_atomic(
+    task1 = _place(
         customer_id=1,
         branch_id=1,
         order_type="dine_in",
         items=[{"menu_item_id": menu_item.id, "quantity": 1}],
     )
-    task2 = create_order_atomic(
+    task2 = _place(
         customer_id=1,
         branch_id=1,
         order_type="dine_in",
@@ -164,7 +179,7 @@ async def test_auto_unavailable_at_zero_stock():
         )
         await session.commit()
 
-    menu = await get_branch_menu_data(1)
+    menu = await MenuService.get_branch_menu(1)
     found_item = None
     for cat in menu["categories"]:
         for it in cat["items"]:
@@ -198,7 +213,7 @@ async def test_order_cancel_and_uncancel_stock_reversal(async_client, staff_auth
         await session.commit()
 
     # 1. Place order for 2 pizzas -> stock should become 8
-    order_res = await create_order_atomic(
+    order_res = await _place(
         customer_id=1,
         branch_id=1,
         order_type="dine_in",
@@ -268,7 +283,7 @@ async def test_uncancel_conflict_when_stock_insufficient(async_client, staff_aut
         await session.commit()
 
     # 1. Place Order A for 1 unit (the last unit)
-    order_a_res = await create_order_atomic(
+    order_a_res = await _place(
         customer_id=1,
         branch_id=1,
         order_type="dine_in",
@@ -292,7 +307,7 @@ async def test_uncancel_conflict_when_stock_insufficient(async_client, staff_aut
         assert stock_val == 1, "Stock should be restored to 1 after cancelling Order A"
 
     # 3. Place Order B consuming that same restored stock
-    order_b_res = await create_order_atomic(
+    order_b_res = await _place(
         customer_id=1,
         branch_id=1,
         order_type="dine_in",

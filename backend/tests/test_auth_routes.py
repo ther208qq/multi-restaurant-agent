@@ -120,6 +120,29 @@ async def test_staff_login_wrong_password_returns_401(async_client):
     assert resp.json()["detail"] == "用户名或密码不正确。"
 
 
+async def test_login_hints_follow_the_active_database(async_client, monkeypatch):
+    """The login UI is told which seeded accounts the backend actually has."""
+    from backend.app.config import settings
+
+    monkeypatch.setattr(
+        settings,
+        "DATABASE_URL",
+        "postgresql+asyncpg://u:p@localhost:5432/restaurant_ai_eval",
+    )
+    resp = await async_client.get("/api/staff/login-hints")
+    assert resp.status_code == 200
+    assert resp.json() == {"dataset": "evaluation"}
+
+    monkeypatch.setattr(
+        settings,
+        "DATABASE_URL",
+        "postgresql+asyncpg://u:p@localhost:5432/restaurant_ai",
+    )
+    resp = await async_client.get("/api/staff/login-hints")
+    assert resp.status_code == 200
+    assert resp.json() == {"dataset": "development"}
+
+
 async def test_me_without_token_returns_401(async_client):
     assert (await async_client.get("/api/auth/me")).status_code == 401
     assert (await async_client.get("/api/staff/me")).status_code == 401

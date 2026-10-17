@@ -51,21 +51,6 @@ class ApprovalRepo:
         return res.scalar_one_or_none()
 
     @staticmethod
-    async def get_by_order(
-        session: AsyncSession, order_id: int, *, with_order: bool = False
-    ) -> Optional[OrderApproval]:
-        """The approval gating one order, if any (newest first)."""
-        stmt = (
-            select(OrderApproval)
-            .where(OrderApproval.order_id == order_id)
-            .order_by(OrderApproval.id.desc())
-        )
-        if with_order:
-            stmt = stmt.options(*_order_load_options())
-        res = await session.execute(stmt)
-        return res.scalars().first()
-
-    @staticmethod
     async def list_by_orders(
         session: AsyncSession, order_ids: List[int]
     ) -> List[OrderApproval]:

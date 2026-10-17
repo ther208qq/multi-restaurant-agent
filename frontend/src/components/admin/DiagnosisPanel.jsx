@@ -26,6 +26,7 @@ import {
   HelpCircle,
 } from 'lucide-react';
 import PeerComparison from './PeerComparison';
+import InvestigationPanel from './InvestigationPanel';
 
 const RANGE_OPTIONS = [
   { value: 7, label: '最近 7 天' },
@@ -384,6 +385,10 @@ export default function DiagnosisPanel({ currentStaff, branches }) {
 
   return (
     <div className="admin-panel" style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+      {/* The Agent chooses its own window from the question; the one-click
+          diagnosis below still uses the explicit date inputs. */}
+      <InvestigationPanel branchId={branchId} />
+
       <div
         style={{
           display: 'flex',

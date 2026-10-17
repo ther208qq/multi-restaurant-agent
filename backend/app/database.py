@@ -39,7 +39,7 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
 
 @asynccontextmanager
 async def transactional_session(
-    session: Optional[AsyncSession] = None,
+        session: Optional[AsyncSession] = None,
 ) -> AsyncGenerator[AsyncSession, None]:
     """Provide a session with a Service-owned transaction boundary.
 

@@ -17,6 +17,7 @@ The actor is resolved from the ORM object that performed the operation
 that only carry an id (Agent tool calls).
 """
 
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -99,12 +100,20 @@ class AuditService:
         *,
         branch_id: Optional[int] = None,
         action: Optional[str] = None,
+        actions: Optional[List[str]] = None,
         entity_type: Optional[str] = None,
         entity_id: Optional[int] = None,
+        start: Optional[datetime] = None,
+        end: Optional[datetime] = None,
         limit: int = 50,
         session: Optional[AsyncSession] = None,
     ) -> List[AuditLog]:
-        """Recent audit rows, newest first, limited to what ``staff`` may see."""
+        """Recent audit rows, newest first, limited to what ``staff`` may see.
+
+        ``start`` / ``end`` bound ``created_at`` (inclusive / exclusive) and are
+        what the diagnosis investigation uses to ask "what changed in this
+        window?". They are optional so the existing staff list is unchanged.
+        """
         if limit < 1:
             raise ValidationError("查询条数至少为 1。")
         limit = min(limit, MAX_AUDIT_LIMIT)
@@ -116,8 +125,11 @@ class AuditService:
                 s,
                 branch_id=effective_branch,
                 action=action,
+                actions=actions,
                 entity_type=entity_type,
                 entity_id=entity_id,
+                start=start,
+                end=end,
                 limit=limit,
             )
 

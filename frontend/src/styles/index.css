@@ -194,8 +194,8 @@ input, select, textarea {
   background: #fee2e2;
 }
 
-/* Chat Widget Container */
-.chat-page {
+/* Customer view container */
+.customer-page {
   flex: 1;
   display: flex;
   max-width: 1200px;
@@ -208,7 +208,7 @@ input, select, textarea {
   box-sizing: border-box;
 }
 
-.chat-sidebar {
+.customer-sidebar {
   width: 320px;
   flex-shrink: 0;
   display: flex;

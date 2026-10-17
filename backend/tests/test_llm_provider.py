@@ -2,8 +2,8 @@
 
 The point of the seam is that swapping the transport (a local Ollama server vs.
 any OpenAI-compatible API keyed with ``OPENAI_API_KEY``) changes nothing for the
-nodes. These tests pin the request shape, the response parsing, the offline
-fallback, and the fact that no node still reaches for the old client name.
+callers. These tests pin the request shape, the response parsing, the offline
+fallback, and the fact that no agent module still reaches for the old client name.
 """
 
 import json
@@ -23,9 +23,8 @@ from backend.app.agent.llm_providers import (
 )
 from backend.app.config import settings
 
-APP_DIR = Path(__file__).resolve().parents[1] / "app"
-NODES_DIR = APP_DIR / "agent" / "nodes"
-LLM_NODES = ("intent_router.py", "order_node.py", "reservation_node.py")
+AGENT_DIR = Path(__file__).resolve().parents[1] / "app" / "agent"
+LLM_MODULES = ("approvals.py", "diagnosis.py", "diagnosis_investigation.py", "kds.py")
 
 
 class _FakeResponse:
@@ -101,12 +100,14 @@ def test_llm_client_facade_delegates(monkeypatch):
     assert captured == {"prompt": "hi", "system_prompt": "sys", "temperature": 0.7}
 
 
-def test_nodes_no_longer_reference_the_ollama_client_name():
+def test_agent_modules_no_longer_reference_the_ollama_client_name():
     """Regression guard: the seam is named ``llm_client`` everywhere."""
-    for name in LLM_NODES:
-        source = (NODES_DIR / name).read_text(encoding="utf-8")
+    for name in LLM_MODULES:
+        source = (AGENT_DIR / name).read_text(encoding="utf-8")
         assert "ollama_client" not in source, name
-        assert "llm_client" in source, name
+    # The modules that actually generate text still go through the facade.
+    for name in ("approvals.py", "diagnosis.py", "kds.py"):
+        assert "llm_client" in (AGENT_DIR / name).read_text(encoding="utf-8"), name
 
 
 class _FakeCompletions:
