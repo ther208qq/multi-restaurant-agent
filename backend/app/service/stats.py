@@ -28,11 +28,12 @@ from typing import Any, Dict, List, Optional, Union
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.database import transactional_session
-from backend.app.exceptions import ForbiddenError, NotFoundError, ValidationError
+from backend.app.exceptions import NotFoundError, ValidationError
 from backend.app.models.user import StaffUser
 from backend.app.repo.branch import BranchRepo
 from backend.app.repo.stats import StatsRepo
 from backend.app.service.order import VALID_ORDER_STATUSES
+from backend.app.service.scope import resolve_staff_branch
 
 # Everything that is not cancelled is a sale -- including ``delivered`` (the
 # order was served) and orders still moving through the lifecycle.
@@ -66,6 +67,20 @@ def _day_start(day: date) -> datetime:
     return datetime.combine(day, time.min, tzinfo=timezone.utc)
 
 
+def resolve_branch_scope(
+    branch_id: Optional[int], staff: Optional[StaffUser]
+) -> int:
+    """The branch a request may read, applying the staff scope rule.
+
+    A branch-bound staff member may only name their own branch and defaults to
+    it; an unscoped staff member must name one. Shared by every service that
+    aggregates branch data so the permission rule exists once.
+    """
+    return resolve_staff_branch(
+        staff, branch_id, required_message="请指定要统计的门店。"
+    )
+
+
 class StatsService:
     @staticmethod
     async def get_branch_summary(
@@ -86,15 +101,7 @@ class StatsService:
             raise ValidationError("排行条数至少为 1。")
         top_limit = min(top_limit, MAX_TOP_ITEMS)
 
-        if staff is not None and staff.branch_id and branch_id is not None:
-            if branch_id != staff.branch_id:
-                raise ForbiddenError("您没有权限访问该门店。")
-        # A branch-bound staff member asks about their own branch by default.
-        resolved_branch_id = (
-            staff.branch_id if staff is not None and staff.branch_id else branch_id
-        )
-        if resolved_branch_id is None:
-            raise ValidationError("请指定要统计的门店。")
+        resolved_branch_id = resolve_branch_scope(branch_id, staff)
 
         end = _to_date(end_date, "结束日期") or datetime.now(timezone.utc).date()
         start = _to_date(start_date, "开始日期") or (
@@ -189,4 +196,5 @@ __all__ = [
     "MAX_RANGE_DAYS",
     "DEFAULT_TOP_ITEMS",
     "MAX_TOP_ITEMS",
+    "resolve_branch_scope",
 ]

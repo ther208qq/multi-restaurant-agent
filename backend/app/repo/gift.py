@@ -79,13 +79,4 @@ class GiftRepo:
         res = await session.execute(stmt)
         return list(res.scalars().all())
 
-    @staticmethod
-    async def update_status(
-        session: AsyncSession, gift: Gift, new_status: str
-    ) -> Gift:
-        gift.status = new_status
-        await session.flush()
-        return gift
-
-
 __all__ = ["GiftRepo"]

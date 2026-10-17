@@ -10,7 +10,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.database import transactional_session
-from backend.app.exceptions import ForbiddenError, NotFoundError, ValidationError
+from backend.app.exceptions import NotFoundError, ValidationError
 from backend.app.models.menu import (
     MenuCategory,
     MenuItem,
@@ -21,6 +21,7 @@ from backend.app.models.user import StaffUser
 from backend.app.repo.branch import BranchRepo
 from backend.app.repo.menu import MenuRepo
 from backend.app.service.audit import AuditService
+from backend.app.service.scope import ensure_branch_scope, resolve_staff_branch
 
 DEFAULT_INITIAL_STOCK = 50
 _UPDATABLE_ITEM_FIELDS = ("name", "description", "base_price", "is_available")
@@ -46,15 +47,10 @@ def variant_payload(variant: MenuItemVariant) -> Dict[str, Any]:
     }
 
 
-def item_payload(
-    item: MenuItem,
-    stock_quantity: int,
-    variants: Optional[List[MenuItemVariant]] = None,
-) -> Dict[str, Any]:
-    """Staff-facing menu item shape with the centralized availability rule."""
+def _item_fields(item: MenuItem, stock_quantity: int) -> Dict[str, Any]:
+    """Fields shared by the staff and public menu shapes."""
     return {
         "id": item.id,
-        "category_id": item.category_id,
         "name": item.name,
         "description": item.description,
         "base_price": item.base_price,
@@ -63,19 +59,26 @@ def item_payload(
         "effective_available": compute_effective_available(
             item.is_available, stock_quantity
         ),
+    }
+
+
+def item_payload(
+    item: MenuItem,
+    stock_quantity: int,
+    variants: Optional[List[MenuItemVariant]] = None,
+) -> Dict[str, Any]:
+    """Staff-facing menu item shape with the centralized availability rule."""
+    return {
+        **_item_fields(item, stock_quantity),
+        "category_id": item.category_id,
         "variants": [variant_payload(v) for v in (variants or [])],
     }
 
 
 def _menu_item_payload(item, stock_quantity):
+    """Public menu item shape: shorter variant keys for the customer UI."""
     return {
-        "id": item.id,
-        "name": item.name,
-        "description": item.description,
-        "base_price": item.base_price,
-        "is_available": item.is_available,
-        "stock_quantity": stock_quantity,
-        "effective_available": compute_effective_available(item.is_available, stock_quantity),
+        **_item_fields(item, stock_quantity),
         "variants": [
             {
                 "id": v.id,
@@ -126,8 +129,8 @@ class MenuService:
         *,
         session: Optional[AsyncSession] = None,
     ) -> List[MenuCategory]:
+        resolved_branch_id = resolve_staff_branch(staff, branch_id)
         async with transactional_session(session) as s:
-            resolved_branch_id = staff.branch_id or branch_id or 1
             return await MenuRepo.list_categories(s, resolved_branch_id)
 
     @staticmethod
@@ -138,8 +141,7 @@ class MenuService:
         *,
         session: Optional[AsyncSession] = None,
     ) -> MenuCategory:
-        if staff.branch_id and branch_id != staff.branch_id:
-            raise ForbiddenError("您没有权限访问该门店。")
+        ensure_branch_scope(staff, branch_id)
         async with transactional_session(session) as s:
             category = await MenuRepo.create_category(s, branch_id, name)
             await AuditService.record(
@@ -171,8 +173,7 @@ class MenuService:
             category = await MenuRepo.get_category(s, category_id)
             if category is None:
                 raise NotFoundError("菜品分类不存在。")
-            if staff.branch_id and category.branch_id != staff.branch_id:
-                raise ForbiddenError("您没有权限访问该门店。")
+            ensure_branch_scope(staff, category.branch_id)
             item = await MenuRepo.create_item(
                 s,
                 category_id=category_id,
@@ -220,8 +221,7 @@ class MenuService:
             )
             if item is None:
                 raise NotFoundError("菜品不存在。")
-            if staff.branch_id and item.category.branch_id != staff.branch_id:
-                raise ForbiddenError("您没有权限访问该门店。")
+            ensure_branch_scope(staff, item.category.branch_id)
             updates = {
                 key: value
                 for key, value in values.items()
@@ -254,8 +254,7 @@ class MenuService:
         *,
         session: Optional[AsyncSession] = None,
     ) -> MenuItemStock:
-        if staff.branch_id and branch_id != staff.branch_id:
-            raise ForbiddenError("您没有权限访问该门店。")
+        ensure_branch_scope(staff, branch_id)
         if stock_quantity < 0:
             raise ValidationError("库存数量不能为负数。")
         async with transactional_session(session) as s:

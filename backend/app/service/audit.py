@@ -80,24 +80,9 @@ class AuditService:
         branch_id: Optional[int] = None,
         details: Optional[Dict[str, Any]] = None,
         actor: Optional[Any] = None,
-        actor_type: Optional[str] = None,
-        actor_id: Optional[int] = None,
-        actor_name: Optional[str] = None,
-        actor_role: Optional[str] = None,
     ) -> AuditLog:
-        """Write one audit row on the caller's session (no transaction of its own).
-
-        ``actor`` takes precedence when given; otherwise the explicit
-        ``actor_type`` / ``actor_id`` / ``actor_name`` / ``actor_role`` values are
-        used, so an Agent tool that only knows the customer id can still attribute
-        the operation.
-        """
-        fields = actor_fields(actor) if actor is not None else {
-            "actor_type": actor_type or "system",
-            "actor_id": actor_id,
-            "actor_name": actor_name,
-            "actor_role": actor_role,
-        }
+        """Write one audit row on the caller's session (no transaction of its own)."""
+        fields = actor_fields(actor)
         return await AuditRepo.record(
             session,
             action=action,

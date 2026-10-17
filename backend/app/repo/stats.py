@@ -181,4 +181,54 @@ class StatsRepo:
         ]
 
 
+    @staticmethod
+    async def dish_daily_totals(
+        session: AsyncSession,
+        *,
+        branch_id: int,
+        start: datetime,
+        end: datetime,
+        sold_statuses: tuple,
+        menu_item_ids: List[int],
+    ) -> List[Dict[str, Any]]:
+        """Units per requested dish per UTC day, ordered by dish then day.
+
+        Only days on which a requested dish actually sold produce a row. A
+        missing day is *not* a zero: the Service pads the calendar so that a day
+        with no order lines stays distinguishable from a real zero-sales day.
+
+        This is the only aggregate with both a dish and a day dimension. It
+        deliberately applies no ranking or limit -- the caller names the dishes.
+        """
+        if not menu_item_ids:
+            return []
+        quantity = func.sum(OrderItem.quantity)
+        stmt = (
+            select(
+                OrderItem.menu_item_id.label("menu_item_id"),
+                _UTC_DAY.label("day"),
+                quantity.label("quantity"),
+            )
+            .join(Order, Order.id == OrderItem.order_id)
+            .where(
+                Order.branch_id == branch_id,
+                Order.created_at >= start,
+                Order.created_at < end,
+                Order.status.in_(sold_statuses),
+                OrderItem.menu_item_id.in_(menu_item_ids),
+            )
+            .group_by(OrderItem.menu_item_id, _UTC_DAY)
+            .order_by(OrderItem.menu_item_id, _UTC_DAY)
+        )
+        res = await session.execute(stmt)
+        return [
+            {
+                "menu_item_id": row.menu_item_id,
+                "day": row.day,
+                "quantity": int(row.quantity or 0),
+            }
+            for row in res.all()
+        ]
+
+
 __all__ = ["StatsRepo"]

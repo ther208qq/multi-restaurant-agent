@@ -9,30 +9,51 @@ The split is deliberate, and it is the whole point of the feature:
 
 * **已确认事实 (facts)** are written here, in Python, straight from the payload.
   The model never authors them, so a fact cannot drift away from its evidence.
-* **可能原因 (causes)** and **待核查事项 (checks)** are the model's job, but only
-  as prose *over the evidence*. Each one must cite an ``evidence_ref`` that
-  exists in the payload; an item citing a ref that does not resolve is dropped
-  whole. An item may not introduce a number the payload does not contain, and may
-  not blame weather, holidays, competitors, staffing, promotions or sell-outs --
-  the system holds no data for any of those, so the validator refuses them rather
-  than trusting the prompt to avoid them.
+* **有证据的推断 (inferences)** and **待核查事项 (checks)** are the model's job,
+  but only as prose *over the evidence*. Each one must cite an ``evidence_ref``
+  that exists in the payload; an item citing a ref that does not resolve is
+  dropped whole. An item may not introduce a number the payload does not contain,
+  and may not blame weather, holidays, competitors, staffing, promotions or
+  sell-outs -- the system holds no data for any of those, so the validator
+  refuses them rather than trusting the prompt to avoid them.
+* **未经证实的假设 (hypotheses)** take no evidence refs at all. They are the
+  model's speculative explanations, prefixed with ``未经证实：`` by this module
+  (never by the model) and rendered in their own section, so a guess can never be
+  read as an evidenced cause. The same number and forbidden-keyword guards apply.
 * When the model is unreachable, or its answer does not survive validation, the
-  deterministic :func:`rule_causes` take over. They state only what the metric
-  relationships already imply, and each still cites real evidence.
+  deterministic :func:`rule_causes` take over as inferences. They state only what
+  the metric relationships already imply, and each still cites real evidence.
+  The rules do not invent hypotheses; that bucket is empty in fallback mode.
 * **No findings means no call at all.** There is nothing to explain, so the model
   is never consulted -- a quiet day costs nothing and a refusal cannot be talked
   into a cause.
 
 The interesting failure this guards against is not a hallucinated sentence; it is
 a *plausible* one. "客流下降可能与周边竞品活动有关" reads perfectly and would be
-routine in a generic analytics tool, but nothing in this system observed it.
+routine in a generic analytics tool, but nothing in this system observed it. It
+belongs in hypotheses -- labelled unverified -- not in inferences.
 """
 
 import re
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from backend.app.agent.llm import extract_json_from_text, llm_client
-from backend.app.service.diagnostics import TREND_GRADUAL, TREND_SINGLE_DAY
+from backend.app.service.diagnostics import (
+    TREND_DIFFUSE,
+    TREND_GRADUAL,
+    TREND_GRADUAL_UP,
+    TREND_SINGLE_DAY,
+    TREND_SINGLE_DAY_UP,
+)
+
+# Shapes that were actually classified by the Service. Anything else under a
+# "逐日走势" label -- ``None``, the diffuse bucket -- is not a confirmed fact.
+_CLASSIFIED_SHAPES = (
+    TREND_SINGLE_DAY,
+    TREND_GRADUAL,
+    TREND_SINGLE_DAY_UP,
+    TREND_GRADUAL_UP,
+)
 
 # What the analysis concludes about itself. ``no_findings`` and
 # ``insufficient_data`` both mean "no causes were produced", but for opposite
@@ -42,10 +63,15 @@ ANALYSIS_OK = "ok"
 ANALYSIS_NO_FINDINGS = "no_findings"
 ANALYSIS_INSUFFICIENT = "insufficient_data"
 
-# Who wrote the causes. ``rule`` is not a degraded mode to hide: when the model
-# is unreachable the analysis is narrower, and the caller is told so.
+# Who wrote the inferences and checks. ``rule`` is not a degraded mode to hide:
+# when the model is unreachable the analysis is narrower, and the caller is told
+# so.
 SOURCE_LLM = "llm"
 SOURCE_RULE = "rule"
+
+# Added by the validator, never taken from the model, so an unverified guess is
+# labelled as such no matter what the model wrote.
+HYPOTHESIS_PREFIX = "未经证实："
 
 # Causes this system has no data to support (audit §F). A cause mentioning any of
 # these asserts something nothing in the database observed, so it is discarded --
@@ -78,21 +104,26 @@ _NUMBER_PATTERN = re.compile(r"\d+(?:\.\d+)?")
 _NUMBER_TOLERANCE = 0.011
 
 _ANALYSIS_SYSTEM_PROMPT = (
-    "你是门店经营异常的原因分析助手。用户会给你一组**已经确认的**证据，"
+    "你是门店经营异常的分析助手。用户会给你一组**已经确认的**证据，"
     "每条证据前面有一个 evidence_ref 标识。\n"
-    "你只能基于这些证据进行推理，输出 JSON：\n"
-    '{"causes": [{"text": "可能原因", "evidence_refs": ["f0.e1"]}], '
+    "请把结论分成三类：有证据支持的推断 inferences、没有证据支持的可能解释 hypotheses、"
+    "需要人工核实的信息 checks。输出 JSON：\n"
+    '{"inferences": [{"text": "有证据支持的推断", "evidence_refs": ["f0.e1"]}], '
+    '"hypotheses": [{"text": "没有证据支持的可能解释"}], '
     '"checks": [{"text": "需要进一步核实的信息", "evidence_refs": ["f0.e1"]}]}\n'
     "硬性要求：\n"
-    "1. 每条原因、每条待核查事项都必须引用至少一个真实存在的 evidence_ref。"
+    "1. 每条 inference、每条 check 都必须引用至少一个真实存在的 evidence_ref。"
     "引用不存在的 ref、或引用空列表，该条会被直接丢弃。\n"
-    "2. 不要在文字里写任何数字（包括百分比、金额、天数）。"
+    "2. hypotheses 不要写 evidence_ref：它代表目前没有证据支持的可能解释，"
+    "系统会自动加上「未经证实」标注。\n"
+    "3. 三类文字里都不要写任何数字（包括百分比、金额、天数）。"
     "需要指代数值时用对应证据的 evidence_ref，不要复述它。\n"
-    "3. 禁止把原因归咎于天气、节假日、竞争对手、排班或人手、促销与折扣、菜品售罄 —— "
+    "4. 禁止把原因归咎于天气、节假日、竞争对手、排班或人手、促销与折扣、菜品售罄 —— "
     "系统没有采集这些数据，提到它们的内容会被丢弃。\n"
-    "4. 只做分析与建议，不给出任何会自动执行的处置动作。\n"
-    "5. 只输出 JSON，不要输出任何其他文字。\n"
-    "如果证据不足以支持任何原因，就返回空的 causes 列表，不要硬凑。"
+    "5. 只做分析与建议，不给出任何会自动执行的处置动作。\n"
+    "6. 只输出 JSON，不要输出任何其他文字。\n"
+    "如果证据不足以支持任何 inference，就返回空的 inferences 列表，不要硬凑；"
+    "没有可说的假设时返回空的 hypotheses 列表。"
 )
 
 
@@ -192,30 +223,41 @@ def _facts(diagnosis: Dict[str, Any]) -> List[Dict[str, Any]]:
     return facts
 
 
-def _shape_citation(finding: Dict[str, Any]) -> Optional[Tuple[str, str]]:
+def _shape_citation(
+    finding: Dict[str, Any], *, include_diffuse: bool = False
+) -> Optional[Tuple[str, str]]:
     """The Service's shape verdict on a finding, as ``(shape, ref)``.
 
-    Only the *classified* shapes count. The Service also emits a "not computable"
-    placeholder under the same label -- for a dish, or for a per-order average --
-    and that belongs in the checklist, not in the confirmed facts, so it is
-    filtered out here by the value being a known shape rather than ``None``.
+    Only the *classified* shapes count by default. The Service also emits a
+    "not computable" placeholder under the same label -- for a per-order average,
+    or for a dish the per-request daily cap left out -- and that belongs in the
+    checklist, not in the confirmed facts, so it is filtered out here by the
+    value being a known shape rather than ``None``.
+
+    ``include_diffuse`` lets a *check* use the ``分散波动`` verdict too: it is
+    still a classified shape and tells the reader where to look, even though it
+    was deliberately kept out of the confirmed facts.
     """
     for item in finding.get("evidence") or []:
         if not item.get("ref") or not item["label"].endswith("逐日走势"):
             continue
-        if item.get("value") in (TREND_SINGLE_DAY, TREND_GRADUAL):
-            return item["value"], item["ref"]
+        value = item.get("value")
+        if value in _CLASSIFIED_SHAPES or (
+            include_diffuse and value == TREND_DIFFUSE
+        ):
+            return value, item["ref"]
     return None
 
 
 def _shape_fact(finding: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    """A second fact when the Service classified the shape of the shortfall."""
+    """A second fact when the Service classified the shape of the movement."""
     citation = _shape_citation(finding)
     if citation is None:
         return None
     shape, ref = citation
+    direction = "上升" if finding.get("direction") == "up" else "下降"
     return {
-        "text": f"{finding['label']}的下降形态为「{shape}」。",
+        "text": f"{finding['label']}的{direction}形态为「{shape}」。",
         "evidence_refs": [ref],
     }
 
@@ -231,7 +273,7 @@ def _by_metric(diagnosis: Dict[str, Any]) -> Dict[str, List[Dict[str, Any]]]:
 
 
 def rule_causes(diagnosis: Dict[str, Any]) -> List[Dict[str, Any]]:
-    """Causes the metric relationships already imply, with no model involved.
+    """Inferences the metric relationships already imply, with no model involved.
 
     Every one of these is a relationship between findings the Service produced,
     not a guess about the world: a basket that shrank while traffic held, a drop
@@ -270,16 +312,32 @@ def rule_causes(diagnosis: Dict[str, Any]) -> List[Dict[str, Any]]:
             }
         )
 
-    # Individual dishes fell while the store's volume held: a dish problem rather
-    # than a store problem.
+    # Individual dishes moved while the store's volume held: a dish problem (or a
+    # dish-level movement) rather than a store-wide one. A rise is described the
+    # same neutral way as a fall -- the system does not know whether growth is an
+    # anomaly, so it must not call it a "problem".
     dishes = grouped.get("dish_sales") or []
     if dishes and "order_count" not in grouped:
+        fell = any(dish.get("direction") == "down" for dish in dishes)
+        rose = any(dish.get("direction") == "up" for dish in dishes)
+        if rose and not fell:
+            text = (
+                "整店订单量没有明显变化，而这些菜品销量明显上升，"
+                "变化更可能集中在个别菜品而不是全店客流。"
+            )
+        elif fell and rose:
+            text = (
+                "整店订单量没有明显变化，而这些菜品销量有升有降，"
+                "变化更可能集中在个别菜品而不是全店客流。"
+            )
+        else:
+            text = (
+                "整店订单量没有明显变化，而这些菜品销量明显下滑，"
+                "问题更可能集中在个别菜品而不是全店客流。"
+            )
         causes.append(
             {
-                "text": (
-                    "整店订单量没有明显变化，而这些菜品销量明显下滑，"
-                    "问题更可能集中在个别菜品而不是全店客流。"
-                ),
+                "text": text,
                 "evidence_refs": [ref for dish in dishes for ref in _refs_of(dish)],
             }
         )
@@ -331,15 +389,44 @@ def rule_checks(diagnosis: Dict[str, Any]) -> List[Dict[str, Any]]:
     for finding in _findings(diagnosis):
         metric = finding["metric"]
         if metric == "dish_sales":
-            checks.append(
-                {
-                    "text": (
-                        "菜品销量没有逐日数据，无法判断这道菜是单日塌方还是整期缓降，"
-                        "需要人工核查它在该区间的每日出单情况。"
-                    ),
-                    "evidence_refs": _refs_of(finding),
-                }
-            )
+            shape_citation = _shape_citation(finding, include_diffuse=True)
+            if shape_citation is not None:
+                shape, ref = shape_citation
+                if shape in (TREND_SINGLE_DAY, TREND_SINGLE_DAY_UP):
+                    text = (
+                        "该菜品的变化集中在单日，先核查该日的实际营业与出单情况"
+                        "（是否售罄、是否漏单或停售）。"
+                        if shape == TREND_SINGLE_DAY
+                        else "该菜品的上升集中在单日，先核查该日是否有促销、"
+                        "团购或活动性大单。"
+                    )
+                elif shape in (TREND_GRADUAL, TREND_GRADUAL_UP):
+                    text = (
+                        "该菜品本期多数天数低于上期水平，属于持续性变化，"
+                        "建议按周复核而不是只看某一天。"
+                        if shape == TREND_GRADUAL
+                        else "该菜品本期多数天数高于上期水平，属于持续性变化，"
+                        "建议按周复核备货与出餐能力。"
+                    )
+                else:
+                    text = "该菜品销量波动分散在多日，建议按日核对出单与可售情况。"
+                checks.append({"text": text, "evidence_refs": [ref]})
+            else:
+                # The dish was not covered by the per-dish daily request (the
+                # per-request cap), so say the shape is unknown rather than guess.
+                if finding.get("direction") == "up":
+                    shape_options = "单日冲高还是整期上升"
+                else:
+                    shape_options = "单日塌方还是整期缓降"
+                checks.append(
+                    {
+                        "text": (
+                            f"本次没有展开该菜品的逐日明细，无法判断是{shape_options}，"
+                            "需要人工核查它在该区间的每日出单情况。"
+                        ),
+                        "evidence_refs": _refs_of(finding),
+                    }
+                )
         elif metric == "average_order_value":
             checks.append(
                 {
@@ -442,10 +529,50 @@ def _accept_claims(
     return kept, dropped
 
 
+def _accept_hypotheses(
+    items: Any, *, allowed: Set[float]
+) -> Tuple[List[Dict[str, Any]], int]:
+    """Keep only the guesses that stay guesses.
+
+    A hypothesis is the one bucket allowed to name a cause the system cannot see,
+    which is exactly why it is guarded at least as tightly as an inference: it
+    may cite no evidence ref at all (citing one would let a guess borrow a
+    fact's authority), it may not carry a number the payload does not contain,
+    and it is subject to the same forbidden-keyword list. The ``未经证实：``
+    prefix is added here rather than trusted to the model, so the label survives
+    even when the model forgets it.
+    """
+    kept: List[Dict[str, Any]] = []
+    dropped = 0
+    for item in items if isinstance(items, list) else []:
+        if not isinstance(item, dict):
+            dropped += 1
+            continue
+        text = str(item.get("text") or "").strip()
+        if text.startswith(HYPOTHESIS_PREFIX):
+            text = text[len(HYPOTHESIS_PREFIX) :].strip()
+        cited = item.get("evidence_refs") or []
+        if isinstance(cited, str):
+            cited = [cited]
+        if (
+            not text
+            or cited
+            or _asserts_forbidden_cause(text)
+            or any(
+                not _number_is_known(number, allowed)
+                for number in _numbers_in_text(text)
+            )
+        ):
+            dropped += 1
+            continue
+        kept.append({"text": HYPOTHESIS_PREFIX + text, "evidence_refs": []})
+    return kept, dropped
+
+
 async def _llm_analysis(
     diagnosis: Dict[str, Any], refs: Dict[str, Any], allowed: Set[float]
 ) -> Optional[Dict[str, Any]]:
-    """The model's causes, or ``None`` when they do not survive validation."""
+    """The model's inferences, hypotheses and checks, or ``None`` if unusable."""
     raw = await llm_client.generate(
         prompt=_evidence_brief(diagnosis), system_prompt=_ANALYSIS_SYSTEM_PROMPT
     )
@@ -453,20 +580,24 @@ async def _llm_analysis(
     if not isinstance(parsed, dict):
         return None
 
-    causes, dropped_causes = _accept_claims(
-        parsed.get("causes"), refs=refs, allowed=allowed
+    inferences, dropped_inferences = _accept_claims(
+        parsed.get("inferences"), refs=refs, allowed=allowed
+    )
+    hypotheses, dropped_hypotheses = _accept_hypotheses(
+        parsed.get("hypotheses"), allowed=allowed
     )
     checks, dropped_checks = _accept_claims(
         parsed.get("checks"), refs=refs, allowed=allowed
     )
-    if not causes:
-        # An answer that offers no usable cause is no better than no answer, and
-        # the rules can still say something true. Fall through.
+    if not inferences:
+        # An answer that offers no usable inference is no better than no answer,
+        # and the rules can still say something true. Fall through.
         return None
     return {
         "source": SOURCE_LLM,
-        "dropped": dropped_causes + dropped_checks,
-        "causes": causes,
+        "dropped": dropped_inferences + dropped_hypotheses + dropped_checks,
+        "inferences": inferences,
+        "hypotheses": hypotheses,
         "checks": checks,
     }
 
@@ -493,7 +624,8 @@ def _no_findings_analysis(diagnosis: Dict[str, Any]) -> Dict[str, Any]:
         "source": SOURCE_RULE,
         "dropped": 0,
         "facts": [],
-        "causes": [],
+        "inferences": [],
+        "hypotheses": [],
         "checks": [
             {"text": note, "evidence_refs": []} for note in diagnosis.get("notes") or []
         ],
@@ -503,12 +635,15 @@ def _no_findings_analysis(diagnosis: Dict[str, Any]) -> Dict[str, Any]:
 async def analyze_diagnosis(diagnosis: Dict[str, Any]) -> Dict[str, Any]:
     """Explain and advise on a :class:`DiagnosisService` payload.
 
-    Returns ``{"status", "source", "dropped", "facts", "causes", "checks"}``:
+    Returns ``{"status", "source", "dropped", "facts", "inferences",
+    "hypotheses", "checks"}``:
 
     * ``facts`` are deterministic and always come from the payload;
-    * ``causes`` / ``checks`` come from the model when it is reachable and its
-      answer cites only real evidence, and from :func:`rule_causes` /
+    * ``inferences`` / ``checks`` come from the model when it is reachable and
+      cite only real evidence, and from :func:`rule_causes` /
       :func:`rule_checks` otherwise;
+    * ``hypotheses`` are the model's un-evidenced guesses, every one prefixed
+      with ``未经证实：``; the rule fallback emits none;
     * ``source`` says which of the two happened, so a narrower analysis is never
       mistaken for a fuller one;
     * ``dropped`` counts the model's claims that were thrown away.
@@ -535,7 +670,8 @@ async def analyze_diagnosis(diagnosis: Dict[str, Any]) -> Dict[str, Any]:
         "source": SOURCE_RULE,
         "dropped": 0,
         "facts": facts,
-        "causes": rule_causes(diagnosis),
+        "inferences": rule_causes(diagnosis),
+        "hypotheses": [],
         "checks": rule_checks(diagnosis),
     }
 
@@ -545,6 +681,7 @@ __all__ = [
     "ANALYSIS_NO_FINDINGS",
     "ANALYSIS_OK",
     "FORBIDDEN_CAUSE_KEYWORDS",
+    "HYPOTHESIS_PREFIX",
     "SOURCE_LLM",
     "SOURCE_RULE",
     "analyze_diagnosis",

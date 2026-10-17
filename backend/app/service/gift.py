@@ -34,13 +34,6 @@ SURPLUS_CATEGORY_KEYWORDS = ("甜点", "饮品")
 SURPLUS_STOCK_THRESHOLD = 5
 
 
-def is_surplus_category(category_name: Optional[str]) -> bool:
-    """Whether a category counts toward the surplus (giftable) pool."""
-    if not category_name:
-        return False
-    return any(keyword in category_name for keyword in SURPLUS_CATEGORY_KEYWORDS)
-
-
 def surplus_payload(item: Any, category_name: str, stock_quantity: int) -> Dict[str, Any]:
     """The gift-candidate shape the Agent offer and the API response share."""
     return {
@@ -126,33 +119,9 @@ class GiftService:
             )
             return [surplus_payload(item, name, qty) for item, name, qty in rows]
 
-    @staticmethod
-    async def redeem_gift(
-        gift_id: int, *, session: Optional[AsyncSession] = None
-    ) -> Gift:
-        """Mark an issued voucher as collected by the guest."""
-        async with transactional_session(session) as s:
-            gift = await GiftRepo.get_gift(s, gift_id, with_item=True)
-            if gift is None:
-                raise NotFoundError(f"赠品 #{gift_id} 不存在。")
-            if gift.status == "redeemed":
-                return gift
-            updated = await GiftRepo.update_status(s, gift, "redeemed")
-            await AuditService.record(
-                s,
-                "gift.redeemed",
-                entity_type="gift",
-                entity_id=gift.id,
-                branch_id=gift.branch_id,
-                details={"item_id": gift.item_id},
-            )
-            return updated
-
-
 __all__ = [
     "GiftService",
     "issue_gift",
-    "is_surplus_category",
     "surplus_payload",
     "SURPLUS_CATEGORY_KEYWORDS",
     "SURPLUS_STOCK_THRESHOLD",

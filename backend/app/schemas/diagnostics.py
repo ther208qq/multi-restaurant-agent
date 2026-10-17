@@ -74,18 +74,22 @@ class DiagnosisClaim(BaseModel):
 
 
 class DiagnosisAnalysis(BaseModel):
-    """The Agent's reading of the findings: facts, causes, and what is unverifiable.
+    """The Agent's reading of the findings, split by how much is known.
 
-    ``facts`` are written deterministically from the Service payload; ``causes``
-    and ``checks`` may come from the LLM, and ``source`` says which produced
-    them so a rule-based fallback is never mistaken for a fuller analysis.
+    ``facts`` are written deterministically from the Service payload;
+    ``inferences`` and ``checks`` may come from the LLM but must cite real
+    evidence, and ``source`` says which produced them so a rule-based fallback
+    is never mistaken for a fuller analysis. ``hypotheses`` are explanations the
+    system holds no evidence for: each is prefixed with ``未经证实：`` and carries
+    no refs, so the UI can keep it visibly apart from an evidenced inference.
     """
 
     status: str   # "ok" | "no_findings" | "insufficient_data"
     source: str   # "llm" | "rule"
     dropped: int = 0
     facts: List[DiagnosisClaim] = []
-    causes: List[DiagnosisClaim] = []
+    inferences: List[DiagnosisClaim] = []
+    hypotheses: List[DiagnosisClaim] = []
     checks: List[DiagnosisClaim] = []
 
 

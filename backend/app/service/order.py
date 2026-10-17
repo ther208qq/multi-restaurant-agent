@@ -40,6 +40,7 @@ from backend.app.repo.menu import MenuRepo
 from backend.app.repo.order import OrderRepo
 from backend.app.repo.user import UserRepo
 from backend.app.service.audit import AuditService
+from backend.app.service.scope import ensure_branch_scope
 
 VALID_ORDER_STATUSES = (
     # ``pending_approval`` is the entry state for an order whose notes read as a
@@ -510,8 +511,7 @@ class OrderService:
             )
             if order is None:
                 raise NotFoundError(f'订单 #{order_id} 不存在。')
-            if staff is not None and staff.branch_id and order.branch_id != staff.branch_id:
-                raise ForbiddenError('您没有权限管理该门店的订单。')
+            ensure_branch_scope(staff, order.branch_id, message='您没有权限管理该门店的订单。')
             if new_status not in VALID_ORDER_STATUSES:
                 raise ValidationError(f'无效的状态 {new_status}，必须是以下之一：{list(VALID_ORDER_STATUSES)}。')
             if new_status == order.status:
@@ -720,8 +720,7 @@ class OrderService:
             )
             if order is None:
                 raise NotFoundError(f'订单 #{order_id} 不存在。')
-            if staff is not None and staff.branch_id and order.branch_id != staff.branch_id:
-                raise ForbiddenError('您没有权限管理该门店的订单。')
+            ensure_branch_scope(staff, order.branch_id, message='您没有权限管理该门店的订单。')
             if order.status not in KDS_ACTIONABLE_ORDER_STATUSES:
                 raise ValidationError(
                     f'订单当前状态为「{_status_label(order.status)}」，无法操作后厨。'

@@ -31,12 +31,22 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.app.exceptions import ValidationError
+from backend.app.database import transactional_session
+from backend.app.exceptions import NotFoundError, ValidationError
 from backend.app.models.user import StaffUser
+from backend.app.repo.stats import StatsRepo
 from backend.app.service.audit import MAX_AUDIT_LIMIT, AuditService
+from backend.app.service.branch import BranchService
 # ``MAX_TOP_ITEMS`` is the statistics service's cap on the dish ranking; asking
 # for it keeps the widest comparison window the statistics layer will serve.
-from backend.app.service.stats import MAX_RANGE_DAYS, MAX_TOP_ITEMS, StatsService
+from backend.app.service.stats import (
+    CANCELLED_ORDER_STATUSES,
+    MAX_RANGE_DAYS,
+    MAX_TOP_ITEMS,
+    SOLD_ORDER_STATUSES,
+    StatsService,
+    resolve_branch_scope,
+)
 
 # Length of the judged window when the caller does not pick one (matches the
 # statistics page's default, so the two views describe the same period).
@@ -62,14 +72,23 @@ CRITICAL_CANCELLATION_RATE_PP = 15.0
 # How many unjudged dish names a note lists before it summarises the rest.
 MAX_SKIPPED_ITEMS_IN_NOTE = 5
 
+# How many dishes one per-dish daily request may cover. The diagnosis payload
+# can hold up to MAX_TOP_ITEMS dish findings; filling every one of them would
+# multiply the evidence by the window length, so the capability is deliberately
+# capped at the ranking's default size. Callers choose which dishes to spend it
+# on; the Service refuses an oversized request rather than silently truncating.
+MAX_DISH_DAILY_ITEMS = 10
+
 # When this share of a window's total shortfall lands on one day, the fall is a
 # single bad day rather than a trend -- the two need opposite responses, so the
 # Service says which one it saw instead of leaving it to prose.
 SHORTFALL_CONCENTRATION = 0.6
 
-TREND_NONE = "无明显缺口"
+TREND_NONE = "无明显变化"
 TREND_SINGLE_DAY = "单日塌方"
 TREND_GRADUAL = "整期缓降"
+TREND_SINGLE_DAY_UP = "单日冲高"
+TREND_GRADUAL_UP = "整期上升"
 TREND_DIFFUSE = "分散波动"
 
 # The five metrics of the MVP, in the order they are reported. Every one is a
@@ -115,7 +134,7 @@ def _today() -> date:
     return datetime.now(timezone.utc).date()
 
 
-def _active_days(summary: Dict[str, Any]) -> int:
+def active_days(summary: Dict[str, Any]) -> int:
     """Days inside the window that sold at least one order.
 
     A day whose orders were all cancelled does not count: it cannot stand in as
@@ -124,13 +143,18 @@ def _active_days(summary: Dict[str, Any]) -> int:
     return sum(1 for point in summary.get("daily") or [] if point["order_count"] > 0)
 
 
-def _has_rows(summary: Dict[str, Any]) -> bool:
+def has_rows(summary: Dict[str, Any]) -> bool:
     """Whether the window recorded anything at all, sales or cancellations."""
     return bool(summary.get("order_count") or summary.get("cancelled_count"))
 
 
-def _change_pct(current: float, previous: float) -> Optional[float]:
-    """Relative change, or ``None`` when the baseline is zero (undefined)."""
+def relative_change_pct(current: float, previous: float) -> Optional[float]:
+    """Relative change, or ``None`` when the baseline is zero (undefined).
+
+    Named ``relative_change_pct`` rather than ``change_pct`` on purpose: the dish
+    daily builder holds a local ``change_pct`` for its per-dish result, and a
+    same-named module function would be shadowed inside that method.
+    """
     if previous <= 0:
         return None
     return (float(current) - float(previous)) / float(previous) * 100.0
@@ -144,20 +168,24 @@ def _rate(cancelled: int, orders: int) -> float:
     return cancelled / total * 100.0
 
 
+def _utc_bounds(start: date, end: date) -> Tuple[datetime, datetime]:
+    """A date range as the half-open UTC ``[start, end)`` instants the SQL uses."""
+    return (
+        datetime.combine(start, time.min, tzinfo=timezone.utc),
+        datetime.combine(end + timedelta(days=1), time.min, tzinfo=timezone.utc),
+    )
+
+
 def _window_bounds(summary: Dict[str, Any]) -> Tuple[datetime, datetime]:
     """The window as a half-open ``[start, end)`` pair of UTC instants.
 
     The same bounds the statistics aggregates use, so an audit row and an order
     are placed inside or outside a window by one shared rule.
     """
-    start = datetime.combine(summary["start_date"], time.min, tzinfo=timezone.utc)
-    end = datetime.combine(
-        summary["end_date"] + timedelta(days=1), time.min, tzinfo=timezone.utc
-    )
-    return start, end
+    return _utc_bounds(summary["start_date"], summary["end_date"])
 
 
-def _daily_series(summary: Dict[str, Any], metric: str) -> List[Optional[float]]:
+def daily_series(summary: Dict[str, Any], metric: str) -> List[Optional[float]]:
     """``metric`` for every UTC day of the window, oldest day first.
 
     ``StatsRepo.daily_totals`` groups over order rows, so a day with no orders
@@ -191,29 +219,81 @@ def _daily_series(summary: Dict[str, Any], metric: str) -> List[Optional[float]]
     return series
 
 
-def _shape_evidence(
-    current: Dict[str, Any], baseline: Dict[str, Any], metric: str
-) -> List[Dict[str, Any]]:
-    """Whether the shortfall landed on one day or spread across the window.
+def classify_shape(
+    current_series: List[float],
+    baseline_series: List[float],
+    *,
+    direction: str = "down",
+) -> str:
+    """Classify how a window's deviation from its baseline is distributed.
 
-    A period total says how much was lost but not *how*: one closed evening and a
-    week of steadily thinning traffic produce the same percentage and call for
-    opposite responses. The Service answers that from the daily series, so the
-    Agent never has to guess the shape from the total.
+    The classification is the same arithmetic for both directions: compare the
+    window's total with the baseline's, then ask whether the deviation landed on
+    one day or spread across the window. ``direction`` selects which side of the
+    baseline counts as the deviation and therefore which label set is returned --
+    ``单日塌方 / 整期缓降`` for ``down``, ``单日冲高 / 整期上升`` for ``up``.
+    ``TREND_DIFFUSE`` is direction-neutral; ``TREND_NONE`` means "no deviation on
+    the requested side".
+
+    Inputs are totals metrics, so neither series contains ``None``.
+    """
+    if direction not in ("down", "up"):
+        raise ValueError(f"direction must be 'down' or 'up', got {direction!r}.")
+    if not current_series or not baseline_series:
+        return TREND_NONE
+
+    baseline_average = sum(baseline_series) / len(baseline_series)
+    if direction == "down":
+        deviation = sum(baseline_series) - sum(current_series)
+        worst_deviation = max(baseline_average - value for value in current_series)
+        beyond_average = sum(1 for value in current_series if value < baseline_average)
+    else:
+        deviation = sum(current_series) - sum(baseline_series)
+        worst_deviation = max(value - baseline_average for value in current_series)
+        beyond_average = sum(1 for value in current_series if value > baseline_average)
+
+    if deviation <= 0:
+        return TREND_NONE
+    single_day = TREND_SINGLE_DAY_UP if direction == "up" else TREND_SINGLE_DAY
+    gradual = TREND_GRADUAL_UP if direction == "up" else TREND_GRADUAL
+    if worst_deviation / deviation >= SHORTFALL_CONCENTRATION:
+        return single_day
+    if beyond_average / len(current_series) >= SHORTFALL_CONCENTRATION:
+        return gradual
+    return TREND_DIFFUSE
+
+
+def _shape_pair(direction: str) -> str:
+    return "单日冲高还是整期上升" if direction == "up" else "单日塌方还是整期缓降"
+
+
+def _shape_evidence(
+    current: Dict[str, Any],
+    baseline: Dict[str, Any],
+    metric: str,
+    *,
+    direction: str = "down",
+) -> List[Dict[str, Any]]:
+    """Whether the deviation landed on one day or spread across the window.
+
+    A period total says how much was lost (or gained) but not *how*: one closed
+    evening and a week of steadily thinning traffic produce the same percentage
+    and call for opposite responses. The Service answers that from the daily
+    series, so the Agent never has to guess the shape from the total.
 
     The classification runs on totals only. A per-order average has no value on a
     day with no orders, so there is no per-day series to classify; those metrics
     get their raw series plus a plain statement that the shape is not computable.
     """
     label = METRIC_LABELS.get(metric, metric)
-    current_series = _daily_series(current, metric)
-    baseline_series = _daily_series(baseline, metric)
+    current_series = daily_series(current, metric)
+    baseline_series = daily_series(baseline, metric)
     if not current_series or not baseline_series:
         return [
             {
                 "label": f"{label}逐日走势",
                 "value": None,
-                "detail": "统计层没有提供逐日数据，无法判断是单日塌方还是整期缓降。",
+                "detail": f"统计层没有提供逐日数据，无法判断是{_shape_pair(direction)}。",
             }
         ]
 
@@ -233,56 +313,135 @@ def _shape_evidence(
                 "value": None,
                 "detail": (
                     f"{label}是每单平均量，没有成交的日期没有取值，"
-                    "因此无法按日判断是单日塌方还是整期缓降。"
+                    f"因此无法按日判断是{_shape_pair(direction)}。"
                 ),
             },
             series_note,
         ]
 
     baseline_average = sum(baseline_series) / len(baseline_series)
-    shortfall = sum(baseline_series) - sum(current_series)
-    worst_shortfall = max(baseline_average - value for value in current_series)
-    below_average = sum(1 for value in current_series if value < baseline_average)
-
-    if shortfall <= 0:
-        shape = TREND_NONE
-    elif worst_shortfall / shortfall >= SHORTFALL_CONCENTRATION:
-        shape = TREND_SINGLE_DAY
-    elif below_average / len(current_series) >= SHORTFALL_CONCENTRATION:
-        shape = TREND_GRADUAL
-    else:
-        shape = TREND_DIFFUSE
-
     # Totals only from here on, so the series has no ``None`` gaps to guard.
-    worst_index = min(range(len(current_series)), key=lambda i: current_series[i])
-    quiet_days = sum(1 for value in current_series if not value)
+    if direction == "down":
+        below_average = sum(1 for value in current_series if value < baseline_average)
+        shape = classify_shape(current_series, baseline_series)
+        worst_index = min(range(len(current_series)), key=lambda i: current_series[i])
+        quiet_days = sum(1 for value in current_series if not value)
+        detail = (
+            f"上期日均 {baseline_average:.2f}；本期有 {below_average}/{len(current_series)}"
+            f" 天低于该值，其中 {quiet_days} 天完全无成交；最差单日 "
+            f"{current['start_date'] + timedelta(days=worst_index)}"
+            f"（{current_series[worst_index]:.2f}）。"
+        )
+    else:
+        above_average = sum(1 for value in current_series if value > baseline_average)
+        shape = classify_shape(current_series, baseline_series, direction="up")
+        best_index = max(range(len(current_series)), key=lambda i: current_series[i])
+        detail = (
+            f"上期日均 {baseline_average:.2f}；本期有 {above_average}/{len(current_series)}"
+            f" 天高于该值；最高单日 "
+            f"{current['start_date'] + timedelta(days=best_index)}"
+            f"（{current_series[best_index]:.2f}）。"
+        )
+
     return [
         {
             "label": f"{label}逐日走势",
             "value": shape,
-            "detail": (
-                f"上期日均 {baseline_average:.2f}；本期有 {below_average}/{len(current_series)}"
-                f" 天低于该值，其中 {quiet_days} 天完全无成交；最差单日 "
-                f"{current['start_date'] + timedelta(days=worst_index)}"
-                f"（{current_series[worst_index]:.2f}）。"
-            ),
+            "detail": detail,
         },
         series_note,
     ]
 
 
-def _dish_trend_gap(item_name: str) -> Dict[str, Any]:
-    """State, rather than paper over, the missing per-dish daily breakdown.
+def _dish_daily_evidence(
+    dish: Dict[str, Any], item_name: str
+) -> List[Dict[str, Any]]:
+    """The per-dish series and shape verdict, worded like the store-level pair.
 
-    ``StatsRepo.daily_totals`` has no dish dimension and ``dish_totals`` has no
-    day dimension, so nothing in the system can say whether one dish's fall was a
-    single bad day. Saying so is the honest answer.
+    The series keeps the three states apart: a ``null`` is a day the branch has
+    no order record for, which is not the same as a day it traded and this dish
+    did not sell. Whether the dish was sellable is not reconstructable, so it is
+    stated as unknown rather than inferred.
     """
+    shape = dish["shape"]
+    series = [point["quantity"] for point in dish["daily"]]
+    shape_item = {
+        "label": f"「{item_name}」逐日走势",
+        "value": shape["value"] if dish["status"] == "ok" else None,
+        "detail": shape["basis"],
+    }
+    series_item = {
+        "label": f"「{item_name}」本期逐日销量",
+        "value": series,
+        "detail": (
+            f"{dish['current_period']['start_date']} 至 "
+            f"{dish['current_period']['end_date']}（共 {len(series)} 天），按日顺序；"
+            "null 表示当天没有任何订单记录，不代表该菜品销量为零；"
+            "菜品当日是否可售无法回溯（availability: unknown）。"
+        ),
+    }
+    return [shape_item, series_item]
+
+
+def _dish_daily_unavailable(item_name: str, direction: str) -> Dict[str, Any]:
+    """The shape is unknown because this dish was not included in the request."""
     return {
         "label": f"「{item_name}」逐日走势",
         "value": None,
-        "detail": "现有统计只有整店逐日数据，没有单品逐日数据，无法判断是单日塌方还是整期缓降。",
+        "detail": (
+            "本次诊断没有展开该菜品的逐日明细，"
+            f"无法判断变化是{_shape_pair(direction)}，"
+            "需要人工核查每日出单情况。"
+        ),
     }
+
+
+async def _attach_dish_daily(
+    dish_findings: List[Dict[str, Any]],
+    current: Dict[str, Any],
+    start: date,
+    end: date,
+    *,
+    staff: Optional[StaffUser],
+    session: Optional[AsyncSession],
+) -> List[str]:
+    """Fill each dish finding with its own daily series and shape.
+
+    Only called when dish findings exist, so a quiet window never pays for the
+    extra query. The per-request cap keeps a diagnosis payload's evidence
+    bounded; findings past the cap say plainly that their series was not fetched.
+    """
+    covered = dish_findings[:MAX_DISH_DAILY_ITEMS]
+    daily = await DishDailyService.get_dish_daily(
+        current["branch_id"],
+        [finding["menu_item_id"] for finding in covered],
+        start,
+        end,
+        staff=staff,
+        session=session,
+    )
+    by_id = {dish["menu_item_id"]: dish for dish in daily["dishes"]}
+    names = {
+        item["menu_item_id"]: item["name"] for item in current["top_items"]
+    }
+
+    for finding in dish_findings:
+        menu_item_id = finding["menu_item_id"]
+        item_name = names.get(menu_item_id, f"菜品 #{menu_item_id}")
+        dish = by_id.get(menu_item_id)
+        if dish is None:
+            finding["evidence"].append(
+                _dish_daily_unavailable(item_name, finding["direction"])
+            )
+        else:
+            finding["evidence"].extend(_dish_daily_evidence(dish, item_name))
+
+    if len(dish_findings) > len(covered):
+        return [
+            f"菜品逐日明细最多覆盖 {MAX_DISH_DAILY_ITEMS} 个菜品，"
+            f"本次另有 {len(dish_findings) - len(covered)} 个变化菜品未展开逐日走势。"
+        ]
+    return []
 
 
 async def _cancellation_attribution(
@@ -378,7 +537,7 @@ async def _cancellation_attribution(
     return evidence
 
 
-def _resolve_window(
+def resolve_window(
     start_date: Optional[Any], end_date: Optional[Any]
 ) -> Tuple[date, date, date, date]:
     """Both windows: the judged one and the equal-length one before it.
@@ -409,7 +568,7 @@ def _period(summary: Dict[str, Any]) -> Dict[str, Any]:
         "revenue": summary["revenue"],
         "average_order_value": summary["average_order_value"],
         "units_sold": summary["units_sold"],
-        "active_days": _active_days(summary),
+        "active_days": active_days(summary),
     }
 
 
@@ -437,8 +596,15 @@ def _finding(
     }
 
 
-def _severity(change_pct: float) -> str:
-    """A fall at or past :data:`CRITICAL_CHANGE_PCT` leads the page."""
+def _severity(change_pct: float, direction: str = "down") -> str:
+    """A fall at or past :data:`CRITICAL_CHANGE_PCT` leads the page.
+
+    A rise never escalates past ``warning``: the system can establish that sales
+    moved, but not whether the movement is good or bad (a promotion, a restock,
+    or a one-off event all look the same in this data).
+    """
+    if direction == "up":
+        return "warning"
     return "critical" if change_pct <= -CRITICAL_CHANGE_PCT else "warning"
 
 
@@ -449,7 +615,7 @@ def _volume_findings(
     findings: List[Dict[str, Any]] = []
     notes: List[str] = []
     for metric in VOLUME_METRICS:
-        change = _change_pct(current[metric], baseline[metric])
+        change = relative_change_pct(current[metric], baseline[metric])
         if change is None:
             # The baseline gate above already rules this out for order_count and
             # revenue; the guard keeps a zero-priced catalogue from dividing by
@@ -476,7 +642,7 @@ def _volume_findings(
             },
             {
                 "label": "上期有效经营天数",
-                "value": _active_days(baseline),
+                "value": active_days(baseline),
                 "detail": f"至少 {MIN_BASELINE_DAYS} 天才会用于判断",
             },
         ]
@@ -544,12 +710,13 @@ def _cancellation_finding(
 def _dish_findings(
     current: Dict[str, Any], baseline: Dict[str, Any]
 ) -> Tuple[List[Dict[str, Any]], List[str]]:
-    """Dish-by-dish falls, judged only where a like-for-like baseline exists.
+    """Dish-by-dish movements, judged only where a like-for-like baseline exists.
 
     A dish is compared only when it appears in *both* rankings. The rankings are
     capped by ``top_limit`` and sorted by volume, so a dish missing from the
     baseline is far more likely to have ranked below the cut-off than to have
-    sold nothing -- reporting it as a total collapse would be a fabrication.
+    sold nothing -- reporting it as a total collapse (or a total surge) would be a
+    fabrication.
     """
     findings: List[Dict[str, Any]] = []
     notes: List[str] = []
@@ -570,24 +737,25 @@ def _dish_findings(
         more = f" 等 {len(skipped)} 个" if len(skipped) > MAX_SKIPPED_ITEMS_IN_NOTE else ""
         notes.append(
             f"菜品 {shown}{more} 未同时出现在上期与本期销量排行内，"
-            "无法判断其销量变化（不视为下降）。"
+            "无法判断其销量变化（不视为上升或下降）。"
         )
 
     for item in current["top_items"]:
         previous = baseline_items.get(item["menu_item_id"])
         if previous is None:
             continue
-        change = _change_pct(item["quantity"], previous["quantity"])
-        if change is None or change > -CHANGE_THRESHOLD_PCT:
+        change = relative_change_pct(item["quantity"], previous["quantity"])
+        if change is None or abs(change) < CHANGE_THRESHOLD_PCT:
             continue
+        direction = "up" if change > 0 else "down"
         findings.append(
             _finding(
                 "dish_sales",
                 current=item["quantity"],
                 previous=previous["quantity"],
                 change_pct=change,
-                direction="down",
-                severity=_severity(change),
+                direction=direction,
+                severity=_severity(change, direction),
                 menu_item_id=item["menu_item_id"],
                 evidence=[
                     {
@@ -605,9 +773,9 @@ def _dish_findings(
                         "value": round(float(change), 2),
                         "detail": f"阈值 {CHANGE_THRESHOLD_PCT}%，超过即判定异常",
                     },
-                    # No dish dimension exists in the daily series, so unlike the
-                    # volume metrics this fall cannot be shaped. Say so.
-                    _dish_trend_gap(item["name"]),
+                    # The per-dish daily series and shape are appended by
+                    # ``_attach_dish_daily`` once the findings are known, so a
+                    # window with no dish finding never pays for that query.
                 ],
             )
         )
@@ -648,7 +816,7 @@ class DiagnosisService:
         ``insufficient_data`` when the baseline cannot support a comparison; in
         that case ``findings`` is empty **by design** and ``notes`` says why.
         """
-        start, end, baseline_start, baseline_end = _resolve_window(start_date, end_date)
+        start, end, baseline_start, baseline_end = resolve_window(start_date, end_date)
 
         current = await StatsService.get_branch_summary(
             branch_id,
@@ -673,7 +841,7 @@ class DiagnosisService:
         findings: List[Dict[str, Any]] = []
 
         # Nothing anywhere: there is no comparison to make, only a reason to give.
-        if not _has_rows(current) and not _has_rows(baseline):
+        if not has_rows(current) and not has_rows(baseline):
             notes.append("所选区间与它的上一个对比区间都没有任何订单记录，无法进行经营诊断。")
             return _payload(
                 current, current_period, baseline_period, notes, findings,
@@ -714,14 +882,26 @@ class DiagnosisService:
                 findings.append(cancellation)
 
             dish_findings, dish_notes = _dish_findings(current, baseline)
+            if dish_findings:
+                notes.extend(
+                    await _attach_dish_daily(
+                        dish_findings,
+                        current,
+                        start,
+                        end,
+                        staff=staff,
+                        session=session,
+                    )
+                )
             findings.extend(dish_findings)
             notes.extend(dish_notes)
 
             # A window that still contains today is only partly elapsed, so its
-            # totals are partial -- the drop may be an artefact of the clock.
+            # totals are partial -- either direction of change may be an artefact
+            # of the clock.
             if end >= _today():
                 notes.append(
-                    f"本期结束日 {end} 尚未过完，本期数据不完整，下降幅度可能被高估。"
+                    f"本期结束日 {end} 尚未过完，本期数据不完整，变化幅度可能被高估或低估。"
                 )
 
         _attach_evidence_refs(findings)
@@ -763,6 +943,280 @@ def _payload(
     }
 
 
+def _calendar(start: date, end: date) -> List[date]:
+    return [start + timedelta(days=offset) for offset in range((end - start).days + 1)]
+
+
+def _dish_daily_series(
+    days: List[date],
+    branch_by_day: Dict[date, Dict[str, Any]],
+    quantities: Dict[date, int],
+) -> List[Dict[str, Any]]:
+    """Align one dish's sales to the window's calendar.
+
+    A day on which the branch recorded *any* order is a business day: a missing
+    dish row there is a genuine zero. A day with no branch record at all is
+    ``no_record`` -- saying "sold nothing" would be an interpretation the data
+    does not support.
+    """
+    series: List[Dict[str, Any]] = []
+    for day in days:
+        if day in branch_by_day:
+            series.append(
+                {
+                    "date": day,
+                    "quantity": int(quantities.get(day, 0)),
+                    "day_type": "business",
+                }
+            )
+        else:
+            series.append({"date": day, "quantity": None, "day_type": "no_record"})
+    return series
+
+
+def _shape_values(series: List[Dict[str, Any]]) -> List[float]:
+    """The arithmetic view of a series: ``no_record`` counts as 0.0.
+
+    This is the same treatment the store-level totals series gets, so a dish
+    shape and a store shape are computed over the same calendar.
+    """
+    return [
+        0.0 if point["quantity"] is None else float(point["quantity"])
+        for point in series
+    ]
+
+
+def _dish_shape_basis(
+    current_series: List[float],
+    baseline_series: List[float],
+    direction: Optional[str],
+    start_date: date,
+) -> str:
+    if direction is None:
+        return "本期与上期销量持平。"
+    if not current_series or not baseline_series:
+        return "没有足够的逐日数据判断形态。"
+    average = sum(baseline_series) / len(baseline_series)
+    if direction == "up":
+        beyond = sum(1 for value in current_series if value > average)
+        index = max(range(len(current_series)), key=lambda i: current_series[i])
+        comparison = "高于"
+    else:
+        beyond = sum(1 for value in current_series if value < average)
+        index = min(range(len(current_series)), key=lambda i: current_series[i])
+        comparison = "低于"
+    return (
+        f"上期日均 {average:.2f}；本期有 {beyond}/{len(current_series)} 天"
+        f"{comparison}该值；极值日 {start_date + timedelta(days=index)}"
+        f"（{current_series[index]:.2f}）。"
+    )
+
+
+class DishDailyService:
+    @staticmethod
+    async def get_dish_daily(
+        branch_id: Optional[int] = None,
+        menu_item_ids: Optional[List[int]] = None,
+        start_date: Optional[Any] = None,
+        end_date: Optional[Any] = None,
+        *,
+        staff: Optional[StaffUser] = None,
+        session: Optional[AsyncSession] = None,
+    ) -> Dict[str, Any]:
+        """Per-dish daily sales for the window and the one before it.
+
+        This answers *where inside the window* a dish's movement happened, which
+        the period aggregates cannot. It reads the branch's daily activity and
+        every requested dish in **one query each**, and classifies the shape with
+        the same :func:`classify_shape` the store-level findings use.
+
+        Three states that look alike in a total stay distinct here:
+
+        * ``business`` + ``quantity: 0`` -- the branch traded, the dish did not sell;
+        * ``no_record`` + ``quantity: null`` -- the branch has no order record that
+          day, so the dish's zero cannot be inferred;
+        * ``availability: "unknown"`` -- whether the dish was sellable that day
+          cannot be reconstructed from current stock rows, so it is not claimed.
+
+        Callers name at most :data:`MAX_DISH_DAILY_ITEMS` dishes. The limit keeps
+        a prefilled diagnosis payload's evidence bounded; an oversized request is
+        refused rather than truncated.
+        """
+        requested: List[int] = []
+        seen = set()
+        for raw in menu_item_ids or []:
+            try:
+                item_id = int(raw)
+            except (TypeError, ValueError):
+                raise ValidationError("菜品 ID 无效。")
+            if item_id <= 0:
+                raise ValidationError("菜品 ID 无效。")
+            if item_id not in seen:
+                seen.add(item_id)
+                requested.append(item_id)
+        if not requested:
+            raise ValidationError("请指定至少一个菜品。")
+        if len(requested) > MAX_DISH_DAILY_ITEMS:
+            raise ValidationError(
+                f"单次最多查询 {MAX_DISH_DAILY_ITEMS} 个菜品。"
+            )
+
+        resolved_branch_id = resolve_branch_scope(branch_id, staff)
+        start, end, baseline_start, baseline_end = resolve_window(start_date, end_date)
+        current_days = _calendar(start, end)
+        baseline_days = _calendar(baseline_start, baseline_end)
+        # The two windows are adjacent, so both fit one half-open range.
+        combined_start, combined_end = _utc_bounds(baseline_start, end)
+
+        async with transactional_session(session) as s:
+            branch = await BranchService.get_branch(resolved_branch_id, session=s)
+            if branch is None:
+                raise NotFoundError(f"门店 #{resolved_branch_id} 不存在。")
+
+            branch_rows = await StatsRepo.daily_totals(
+                s,
+                branch_id=resolved_branch_id,
+                start=combined_start,
+                end=combined_end,
+                sold_statuses=SOLD_ORDER_STATUSES,
+                cancelled_statuses=CANCELLED_ORDER_STATUSES,
+            )
+            dish_rows = await StatsRepo.dish_daily_totals(
+                s,
+                branch_id=resolved_branch_id,
+                start=combined_start,
+                end=combined_end,
+                sold_statuses=SOLD_ORDER_STATUSES,
+                menu_item_ids=requested,
+            )
+
+        branch_by_day = {row["day"].date(): row for row in branch_rows}
+        quantities: Dict[int, Dict[date, int]] = {
+            item_id: {} for item_id in requested
+        }
+        for row in dish_rows:
+            quantities[row["menu_item_id"]][row["day"].date()] = int(row["quantity"])
+
+        current_active_days = sum(
+            1
+            for day in current_days
+            if branch_by_day.get(day, {}).get("order_count", 0) > 0
+        )
+        baseline_active_days = sum(
+            1
+            for day in baseline_days
+            if branch_by_day.get(day, {}).get("order_count", 0) > 0
+        )
+        current_has_rows = any(day in branch_by_day for day in current_days)
+
+        notes = ["现有数据无法回溯菜品当日是否可售，availability 固定为 unknown。"]
+        current_no_record = sum(1 for day in current_days if day not in branch_by_day)
+        if current_no_record:
+            notes.append(
+                f"本期有 {current_no_record} 天没有任何订单记录；"
+                "这些日期在形态计算中按 0 处理，但不代表菜品零销量。"
+            )
+        baseline_no_record = sum(
+            1 for day in baseline_days if day not in branch_by_day
+        )
+        if baseline_no_record:
+            notes.append(
+                f"上期有 {baseline_no_record} 天没有任何订单记录；"
+                "这些日期在形态计算中按 0 处理。"
+            )
+        if end >= _today():
+            notes.append(
+                f"本期结束日 {end} 尚未过完，本期数据不完整，变化幅度可能被高估或低估。"
+            )
+
+        dishes: List[Dict[str, Any]] = []
+        for item_id in requested:
+            current_series = _dish_daily_series(
+                current_days, branch_by_day, quantities[item_id]
+            )
+            baseline_series = _dish_daily_series(
+                baseline_days, branch_by_day, quantities[item_id]
+            )
+            current_total = sum(point["quantity"] or 0 for point in current_series)
+            baseline_total = sum(point["quantity"] or 0 for point in baseline_series)
+
+            if not current_has_rows:
+                status = "no_data"
+            elif baseline_active_days < MIN_BASELINE_DAYS:
+                status = "insufficient_baseline"
+            elif baseline_total == 0:
+                status = "zero_baseline"
+            else:
+                status = "ok"
+
+            change_pct: Optional[float] = None
+            direction: Optional[str] = None
+            shape_value: Optional[str] = None
+            if status == "ok":
+                change_pct = round(
+                    float(relative_change_pct(current_total, baseline_total)), 2
+                )
+                if change_pct > 0:
+                    direction = "up"
+                elif change_pct < 0:
+                    direction = "down"
+                current_values = _shape_values(current_series)
+                baseline_values = _shape_values(baseline_series)
+                shape_value = (
+                    classify_shape(
+                        current_values, baseline_values, direction=direction
+                    )
+                    if direction
+                    else TREND_NONE
+                )
+                basis = _dish_shape_basis(
+                    current_values, baseline_values, direction, start
+                )
+            elif status == "insufficient_baseline":
+                basis = (
+                    f"上期有效经营天数仅 {baseline_active_days} 天"
+                    f"（少于 {MIN_BASELINE_DAYS} 天），不判断形态。"
+                )
+            elif status == "zero_baseline":
+                basis = "上期该菜品销量为 0，无法计算变化比例。"
+            else:
+                basis = "本期没有任何订单记录，无法判断菜品变化。"
+
+            dishes.append(
+                {
+                    "menu_item_id": item_id,
+                    "status": status,
+                    "direction": direction,
+                    "change_pct": change_pct,
+                    "availability": "unknown",
+                    "current_period": {
+                        "start_date": start,
+                        "end_date": end,
+                        "quantity": current_total,
+                        "active_days": current_active_days,
+                    },
+                    "baseline_period": {
+                        "start_date": baseline_start,
+                        "end_date": baseline_end,
+                        "quantity": baseline_total,
+                        "active_days": baseline_active_days,
+                    },
+                    "daily": current_series,
+                    "shape": {"value": shape_value, "basis": basis},
+                }
+            )
+
+        return {
+            "branch_id": resolved_branch_id,
+            "start_date": start,
+            "end_date": end,
+            "baseline_start_date": baseline_start,
+            "baseline_end_date": baseline_end,
+            "dishes": dishes,
+            "notes": notes,
+        }
+
+
 __all__ = [
     "CANCELLATION_RATE_DELTA_PP",
     "CHANGE_THRESHOLD_PCT",
@@ -770,6 +1224,8 @@ __all__ = [
     "CRITICAL_CANCELLATION_RATE_PP",
     "DEFAULT_WINDOW_DAYS",
     "DiagnosisService",
+    "DishDailyService",
+    "MAX_DISH_DAILY_ITEMS",
     "MAX_SKIPPED_ITEMS_IN_NOTE",
     "METRIC_LABELS",
     "MIN_BASELINE_DAYS",
@@ -777,7 +1233,15 @@ __all__ = [
     "TOTAL_METRICS",
     "TREND_DIFFUSE",
     "TREND_GRADUAL",
+    "TREND_GRADUAL_UP",
     "TREND_NONE",
     "TREND_SINGLE_DAY",
+    "TREND_SINGLE_DAY_UP",
     "VOLUME_METRICS",
+    "active_days",
+    "classify_shape",
+    "daily_series",
+    "has_rows",
+    "relative_change_pct",
+    "resolve_window",
 ]

@@ -9,13 +9,14 @@ from typing import Any, Dict, List, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.database import transactional_session
-from backend.app.exceptions import ConflictError, ForbiddenError, NotFoundError
+from backend.app.exceptions import ConflictError, NotFoundError
 from backend.app.models.branch import Branch, Table
 from backend.app.models.user import StaffUser
 from backend.app.opening_hours import parse_opening_hours
 from backend.app.repo.branch import BranchRepo
 from backend.app.repo.reservation import ReservationRepo
 from backend.app.service.audit import AuditService
+from backend.app.service.scope import ensure_branch_scope, resolve_staff_branch
 
 
 def _check_opening_hours(values: Dict[str, Any]) -> None:
@@ -132,8 +133,8 @@ class BranchService:
         *,
         session: Optional[AsyncSession] = None,
     ) -> List[Table]:
+        resolved_branch_id = resolve_staff_branch(staff, branch_id)
         async with transactional_session(session) as s:
-            resolved_branch_id = staff.branch_id or branch_id or 1
             return await BranchRepo.list_tables(s, resolved_branch_id)
 
     @staticmethod
@@ -143,8 +144,7 @@ class BranchService:
         *,
         session: Optional[AsyncSession] = None,
     ) -> Table:
-        if staff.branch_id and values.get("branch_id") != staff.branch_id:
-            raise ForbiddenError("您没有权限访问该门店。")
+        ensure_branch_scope(staff, values["branch_id"])
         async with transactional_session(session) as s:
             await _reject_duplicate_label(s, values["branch_id"], values["label"])
             table = await BranchRepo.create_table(s, values)
@@ -175,8 +175,7 @@ class BranchService:
             table = await BranchRepo.get_table(s, table_id)
             if table is None:
                 raise NotFoundError("餐桌不存在。")
-            if staff.branch_id and table.branch_id != staff.branch_id:
-                raise ForbiddenError("您没有权限访问该门店。")
+            ensure_branch_scope(staff, table.branch_id)
             # Only a label that actually changes needs checking: the frontend
             # always sends the current label back, and a branch that already
             # holds duplicates (pre-guard rows) must still be editable.
@@ -218,8 +217,7 @@ class BranchService:
             table = await BranchRepo.get_table(s, table_id)
             if table is None:
                 raise NotFoundError("餐桌不存在。")
-            if staff.branch_id and table.branch_id != staff.branch_id:
-                raise ForbiddenError("您没有权限访问该门店。")
+            ensure_branch_scope(staff, table.branch_id)
 
             bookings = await ReservationRepo.count_by_table(s, table_id)
             if bookings:

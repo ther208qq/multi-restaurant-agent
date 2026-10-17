@@ -98,7 +98,8 @@ async def get_my_order(
     """
     await OrderService.get_customer_order(order_id, current_customer.id, session=db)
     full = await OrderService.get_order(order_id, session=db)
-    approval_status = await ApprovalService.get_approval_status(order_id, session=db)
+    statuses = await ApprovalService.get_approval_statuses([order_id], session=db)
+    approval_status = statuses.get(order_id)
     return OrderResponse.from_order(
         full, customer_name=current_customer.name, approval_status=approval_status
     )

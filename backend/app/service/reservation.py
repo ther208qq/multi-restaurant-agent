@@ -38,7 +38,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.app.database import transactional_session
 from backend.app.exceptions import (
     ConflictError,
-    ForbiddenError,
     NotFoundError,
     ReservationRaceError,
     TableUnavailableError,
@@ -57,6 +56,7 @@ from backend.app.repo.reservation import ReservationRepo
 from backend.app.repo.user import UserRepo
 from backend.app.service.audit import AuditService
 from backend.app.service.gift import issue_gift
+from backend.app.service.scope import ensure_branch_scope
 
 # How long a booking that still holds its table keeps absorbing repeat
 # submissions of itself (spec §9 重复请求). The Agent books in one step -- there
@@ -251,8 +251,7 @@ class ReservationService:
         branch-scope rule applies: a branch-bound staff member may only inspect
         their own branch.
         """
-        if staff is not None and staff.branch_id and branch_id != staff.branch_id:
-            raise ForbiddenError("您没有权限访问该门店。")
+        ensure_branch_scope(staff, branch_id)
         if party_size < 1:
             raise ValidationError("就餐人数至少为 1 位。")
         start = _coerce_start_time(start_time)
@@ -670,14 +669,11 @@ class ReservationService:
             )
             if reservation is None:
                 raise NotFoundError(f'预订 #{reservation_id} 不存在。')
-            if (
-                staff is not None
-                and staff.branch_id
-                and reservation.branch_id != staff.branch_id
-            ):
-                raise ForbiddenError(
-                    '您没有权限管理该门店的预订。'
-                )
+            ensure_branch_scope(
+                staff,
+                reservation.branch_id,
+                message='您没有权限管理该门店的预订。',
+            )
 
             # Snapshot the pre-change state for the audit trail (§9).
             previous = {

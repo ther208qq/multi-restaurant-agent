@@ -286,12 +286,14 @@ async def test_get_approval_status():
     customer = await _make_customer()
     try:
         order, _approval = await _pending(branch_id, main_item_id, customer)
-        assert await ApprovalService.get_approval_status(order.id) == "pending"
+        statuses = await ApprovalService.get_approval_statuses([order.id])
+        assert statuses.get(order.id) == "pending"
         # A normal order has no approval, so no status.
         normal = await OrderService.place_order(
             customer, branch_id, "dine_in", [{"menu_item_id": main_item_id, "quantity": 1}]
         )
-        assert await ApprovalService.get_approval_status(normal.id) is None
+        statuses = await ApprovalService.get_approval_statuses([normal.id])
+        assert statuses.get(normal.id) is None
     finally:
         await _cleanup(branch_id, customer)
 

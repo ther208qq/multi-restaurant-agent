@@ -24,9 +24,10 @@ from backend.app.models.branch import Branch
 from backend.app.models.menu import MenuCategory, MenuItem, MenuItemStock
 from backend.app.models.order import Order
 from backend.app.models.user import Customer, StaffUser
+from backend.app.repo.stats import StatsRepo
 from backend.app.repo.user import UserRepo
 from backend.app.service.order import OrderService
-from backend.app.service.stats import StatsService
+from backend.app.service.stats import SOLD_ORDER_STATUSES, StatsService
 
 
 # --------------------------------------------------------------------------- #
@@ -251,6 +252,77 @@ async def test_daily_series_splits_by_utc_day():
     assert [point["revenue"] for point in summary["daily"]] == [2.0, 4.0]
     assert summary["order_count"] == 2
     assert summary["revenue"] == 6.0
+
+
+async def test_dish_daily_totals_splits_requested_dishes_by_utc_day():
+    branch_id = await _make_branch()
+    other_branch = await _make_branch()
+    customer_id = await _make_customer()
+    alpha = await _make_item(branch_id, name="__st_dd_alpha", price=2.0)
+    beta = await _make_item(branch_id, name="__st_dd_beta", price=3.0)
+    unrequested = await _make_item(branch_id, name="__st_dd_other", price=1.0)
+    foreign = await _make_item(other_branch, name="__st_dd_foreign", price=1.0)
+
+    first = _today() - timedelta(days=2)
+    second = _today() - timedelta(days=1)
+    third = _today()
+
+    def midnight(day):
+        return datetime.combine(day, datetime.min.time(), tzinfo=timezone.utc)
+
+    await _place(branch_id, customer_id, [(alpha, 2)], created_at=midnight(first))
+    await _place(
+        branch_id, customer_id, [(beta, 1)],
+        created_at=midnight(first) + timedelta(hours=12),
+    )
+    await _place(
+        branch_id, customer_id, [(alpha, 3)],
+        created_at=midnight(second) + timedelta(hours=23),
+    )
+    cancelled = await _place(
+        branch_id, customer_id, [(beta, 5)], created_at=midnight(second)
+    )
+    await OrderService.update_status(cancelled.id, "cancelled")
+    await _place(
+        branch_id, customer_id, [(unrequested, 4)], created_at=midnight(first)
+    )
+    await _place(
+        other_branch, customer_id, [(foreign, 9)], created_at=midnight(first)
+    )
+    # Exactly at the exclusive end of the window.
+    await _place(branch_id, customer_id, [(alpha, 7)], created_at=midnight(third))
+
+    async with transactional_session() as s:
+        rows = await StatsRepo.dish_daily_totals(
+            s,
+            branch_id=branch_id,
+            start=midnight(first),
+            end=midnight(third),
+            sold_statuses=SOLD_ORDER_STATUSES,
+            menu_item_ids=[alpha, beta],
+        )
+
+    assert [(row["menu_item_id"], row["day"].date(), row["quantity"]) for row in rows] == [
+        (alpha, first, 2),
+        (alpha, second, 3),
+        (beta, first, 1),
+    ]
+
+
+async def test_dish_daily_totals_with_no_requested_items_returns_empty():
+    branch_id = await _make_branch()
+
+    async with transactional_session() as s:
+        rows = await StatsRepo.dish_daily_totals(
+            s,
+            branch_id=branch_id,
+            start=datetime(2026, 1, 1, tzinfo=timezone.utc),
+            end=datetime(2026, 1, 8, tzinfo=timezone.utc),
+            sold_statuses=SOLD_ORDER_STATUSES,
+            menu_item_ids=[],
+        )
+
+    assert rows == []
 
 
 async def test_requested_range_is_inclusive_on_both_ends():

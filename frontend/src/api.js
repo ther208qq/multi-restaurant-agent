@@ -234,11 +234,13 @@ export const api = {
     return user;
   },
 
-  // Staff Orders
-  getStaffOrders: (branchId = null, status = null) => {
+  // Staff Orders. The list is bounded server-side (100 by default, 500 max) so
+  // a busy branch cannot return its entire order history to the browser.
+  getStaffOrders: (branchId = null, status = null, limit = 100) => {
     const params = new URLSearchParams();
     if (branchId) params.append('branch_id', branchId);
     if (status) params.append('status', status);
+    if (limit) params.append('limit', limit);
     const qs = params.toString() ? `?${params.toString()}` : '';
     return request(`/staff/orders${qs}`, { method: 'GET' }, 'staff');
   },
@@ -339,6 +341,16 @@ export const api = {
     if (endDate) params.append('end_date', endDate);
     const qs = params.toString() ? `?${params.toString()}` : '';
     return request(`/staff/diagnosis${qs}`, { method: 'GET' }, 'staff');
+  },
+
+  // Same-window peer comparison: its own entry, not part of the diagnosis body.
+  getBranchPeers: (branchId = null, startDate = null, endDate = null) => {
+    const params = new URLSearchParams();
+    if (branchId) params.append('branch_id', branchId);
+    if (startDate) params.append('start_date', startDate);
+    if (endDate) params.append('end_date', endDate);
+    const qs = params.toString() ? `?${params.toString()}` : '';
+    return request(`/staff/diagnosis/peers${qs}`, { method: 'GET' }, 'staff');
   },
 
   // Staff Menu & Stock

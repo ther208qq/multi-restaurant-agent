@@ -24,7 +24,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.app.database import transactional_session
 from backend.app.exceptions import (
     ConflictError,
-    ForbiddenError,
     NotFoundError,
     ValidationError,
 )
@@ -38,6 +37,7 @@ from backend.app.repo.user import UserRepo
 from backend.app.service.audit import AuditService
 from backend.app.service.gift import issue_gift
 from backend.app.service.order import ORDER_TRANSITIONS, OrderService
+from backend.app.service.scope import ensure_branch_scope
 
 
 class ApprovalService:
@@ -126,16 +126,6 @@ class ApprovalService:
             return approval
 
     @staticmethod
-    async def get_approval_status(
-        order_id: int, *, session: Optional[AsyncSession] = None
-    ) -> Optional[str]:
-        """The outcome of the approval gating an order, or ``None`` when there is
-        no approval (a normal order)."""
-        async with transactional_session(session) as s:
-            approval = await ApprovalRepo.get_by_order(s, order_id)
-            return approval.status if approval else None
-
-    @staticmethod
     async def get_approval_statuses(
         order_ids: list, *, session: Optional[AsyncSession] = None
     ) -> Dict[int, str]:
@@ -166,8 +156,9 @@ class ApprovalService:
         )
         if order is None:
             raise NotFoundError(f"订单 #{approval.order_id} 不存在。")
-        if staff is not None and staff.branch_id and order.branch_id != staff.branch_id:
-            raise ForbiddenError("您没有权限处理该门店的订单。")
+        ensure_branch_scope(
+            staff, order.branch_id, message="您没有权限处理该门店的订单。"
+        )
         if approval.status != "pending":
             raise ConflictError(
                 f"该审批已处理（当前状态：{approval.status}），无法再次操作。"

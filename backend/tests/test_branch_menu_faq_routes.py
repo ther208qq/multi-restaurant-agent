@@ -84,7 +84,10 @@ async def test_staff_list_branches_admin(async_client, staff_auth_headers):
 
 
 async def test_staff_list_tables(async_client, staff_auth_headers):
-    resp = await async_client.get("/api/staff/branches/tables", headers=staff_auth_headers)
+    # An admin is not bound to a branch, so the branch must be named explicitly.
+    resp = await async_client.get(
+        "/api/staff/branches/tables?branch_id=1", headers=staff_auth_headers
+    )
     assert resp.status_code == 200
     assert resp.json()
 
@@ -141,7 +144,7 @@ async def test_staff_update_table_success(async_client, staff_auth_headers):
     assert patched.json()["seating_area"] == "rooftop"
 
     listed = await async_client.get(
-        "/api/staff/branches/tables", headers=staff_auth_headers
+        "/api/staff/branches/tables?branch_id=1", headers=staff_auth_headers
     )
     row = next(t for t in listed.json() if t["id"] == table_id)
     assert row["label"] == "__route_upd2"
@@ -249,7 +252,7 @@ async def test_staff_delete_table_success(async_client, staff_auth_headers):
     assert deleted.status_code == 204
 
     listed = await async_client.get(
-        "/api/staff/branches/tables", headers=staff_auth_headers
+        "/api/staff/branches/tables?branch_id=1", headers=staff_auth_headers
     )
     assert all(t["id"] != table_id for t in listed.json())
 
@@ -294,7 +297,7 @@ async def test_staff_delete_table_with_bookings_is_refused(async_client, staff_a
     assert "停用" in refused.json()["detail"]
 
     listed = await async_client.get(
-        "/api/staff/branches/tables", headers=staff_auth_headers
+        "/api/staff/branches/tables?branch_id=1", headers=staff_auth_headers
     )
     assert any(t["id"] == table_id for t in listed.json())
 
@@ -336,7 +339,9 @@ async def test_staff_delete_table_requires_auth(async_client):
 
 
 async def test_staff_menu_categories(async_client, staff_auth_headers):
-    resp = await async_client.get("/api/staff/menu/categories", headers=staff_auth_headers)
+    resp = await async_client.get(
+        "/api/staff/menu/categories?branch_id=1", headers=staff_auth_headers
+    )
     assert resp.status_code == 200
     assert resp.json()
 

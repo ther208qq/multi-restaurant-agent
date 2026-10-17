@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { api } from '../../api';
 import {
   DEBOUNCE_MS,
@@ -11,13 +11,21 @@ import {
   staffScopeId,
 } from './diagnosisQuery';
 import {
+  buildEvidenceIndex,
+  describeEvidenceRef,
+  evidenceAnchorId,
+  findingTitle,
+} from './evidenceRefs';
+import {
   Stethoscope,
   RefreshCw,
   AlertCircle,
   AlertTriangle,
   Info,
   CheckCircle2,
+  HelpCircle,
 } from 'lucide-react';
+import PeerComparison from './PeerComparison';
 
 const RANGE_OPTIONS = [
   { value: 7, label: '最近 7 天' },
@@ -54,20 +62,6 @@ function formatAmount(metric, value) {
     return `¥${number.toFixed(2)}`;
   }
   return String(number);
-}
-
-/**
- * Dish findings carry no name field: the Service labels every one of them
- * "菜品销量" and puts the dish name inside the evidence labels, so two dish cards
- * would otherwise be headed with identical words. Lift the name back out.
- */
-function findingTitle(finding) {
-  if (finding.menu_item_id === null || finding.menu_item_id === undefined) {
-    return finding.label;
-  }
-  const named = finding.evidence.find((item) => /^「.+?」/.test(item.label || ''));
-  const match = named && named.label.match(/^「(.+?)」/);
-  return match ? `${finding.label}：${match[1]}` : finding.label;
 }
 
 function signed(value, unit) {
@@ -121,7 +115,7 @@ function SeverityBadge({ severity }) {
   );
 }
 
-function ClaimList({ icon, title, claims, emptyText }) {
+function ClaimList({ icon, title, claims, emptyText, refIndex }) {
   return (
     <div style={{ marginTop: '0.75rem' }}>
       <div
@@ -143,19 +137,39 @@ function ClaimList({ icon, title, claims, emptyText }) {
       ) : (
         <ul style={{ margin: '6px 0 0 0', paddingLeft: '1.1rem', fontSize: '0.875rem' }}>
           {claims.map((claim, index) => (
-            <li key={index} style={{ marginBottom: '4px' }}>
+            <li key={index} style={{ marginBottom: '6px' }}>
               {claim.text}
               {claim.evidence_refs.length > 0 && (
-                <span
+                <div
                   style={{
-                    marginLeft: '6px',
+                    marginTop: '2px',
                     fontSize: '0.75rem',
                     color: 'var(--text-muted)',
-                    fontFamily: 'monospace',
                   }}
                 >
-                  [{claim.evidence_refs.join(' ')}]
-                </span>
+                  依据：
+                  {/* ``f0.e2`` is the Agent's handle, not a reader-facing
+                      name. Resolve it to the wording the Service used, and
+                      keep the code only as tooltip/anchor for traceability. */}
+                  {[...new Set(claim.evidence_refs)].map((ref) => (
+                    <a
+                      key={ref}
+                      href={`#${evidenceAnchorId(ref)}`}
+                      title={`证据 ${ref}（点击跳到对应证据）`}
+                      style={{
+                        display: 'inline-block',
+                        marginRight: '4px',
+                        padding: '1px 7px',
+                        borderRadius: '999px',
+                        background: '#f1f5f9',
+                        color: '#475569',
+                        textDecoration: 'none',
+                      }}
+                    >
+                      {describeEvidenceRef(ref, refIndex)}
+                    </a>
+                  ))}
+                </div>
               )}
             </li>
           ))}
@@ -219,10 +233,7 @@ function FindingCard({ finding }) {
           <table className="data-table" style={{ marginTop: '4px' }}>
             <tbody>
               {finding.evidence.map((item) => (
-                <tr key={item.ref}>
-                  <td style={{ width: '90px', fontFamily: 'monospace', fontSize: '0.75rem' }}>
-                    {item.ref}
-                  </td>
+                <tr key={item.ref} id={evidenceAnchorId(item.ref)} style={{ scrollMarginTop: '96px' }}>
                   <td style={{ whiteSpace: 'nowrap' }}>{item.label}</td>
                   <td>
                     <EvidenceValue value={item.value} />
@@ -336,8 +347,12 @@ export default function DiagnosisPanel({ currentStaff, branches }) {
   useEffect(() => {
     // Retire in-flight work the moment the selection changes, so a response for
     // the previous selection cannot be painted under the new one during the
-    // wait.
+    // wait. The old answer is dropped for the same reason: leaving it on screen
+    // would show one branch's findings under another branch's name.
     guard.invalidate();
+    setResult(null);
+    setError('');
+    setLoading(true);
     scheduler.schedule(() => runQuery());
     return () => scheduler.cancel();
   }, [selectedBranchId, startDate, endDate]);
@@ -359,6 +374,13 @@ export default function DiagnosisPanel({ currentStaff, branches }) {
   const analysis = result ? result.analysis : null;
   const findings = result ? result.findings || [] : [];
   const insufficient = result && result.status === 'insufficient_data';
+  // One lookup per payload, shared by every claim list below. Keyed on the
+  // result object rather than on ``findings``, which is a fresh array each
+  // render and would defeat the memo.
+  const evidenceIndex = useMemo(
+    () => buildEvidenceIndex(result ? result.findings : []),
+    [result]
+  );
 
   return (
     <div className="admin-panel" style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
@@ -550,7 +572,7 @@ export default function DiagnosisPanel({ currentStaff, branches }) {
                 </span>
                 {analysis.dropped > 0 && (
                   <span className="badge badge-warning" style={{ fontWeight: 500 }}>
-                    已丢弃 {analysis.dropped} 条无证据支撑的表述
+                    已丢弃 {analysis.dropped} 条不合规表述
                   </span>
                 )}
               </div>
@@ -560,18 +582,32 @@ export default function DiagnosisPanel({ currentStaff, branches }) {
                 title="已确认事实"
                 claims={analysis.facts}
                 emptyText="本期没有已确认的异常事实。"
+                refIndex={evidenceIndex}
               />
               <ClaimList
                 icon={<Info size={14} />}
-                title="可能原因"
-                claims={analysis.causes}
-                emptyText="现有证据不足以给出原因，不做推测。"
+                title="有证据的推断"
+                claims={analysis.inferences}
+                emptyText="现有证据不足以给出推断，不做推测。"
+                refIndex={evidenceIndex}
+              />
+              {/* Guesses live in their own group, separated from the evidenced
+                  inferences above: the server prefixes each with 未经证实：
+                  precisely so a plausible-sounding cause cannot be read as one
+                  the data supports. */}
+              <ClaimList
+                icon={<HelpCircle size={14} />}
+                title="未经证实的假设"
+                claims={analysis.hypotheses || []}
+                emptyText="本次没有提出未经证实的假设。"
+                refIndex={evidenceIndex}
               />
               <ClaimList
                 icon={<AlertTriangle size={14} />}
                 title="待核查事项"
                 claims={analysis.checks}
                 emptyText="没有需要额外核实的事项。"
+                refIndex={evidenceIndex}
               />
 
               <div
@@ -589,6 +625,12 @@ export default function DiagnosisPanel({ currentStaff, branches }) {
           )}
         </>
       )}
+
+      {/* Its own entry, on the same branch and window: a comparison is a
+          separate question from the diagnosis and is never folded into this
+          payload. It runs only when clicked, because it reads statistics for
+          every visible branch. */}
+      <PeerComparison branchId={branchId} startDate={startDate} endDate={endDate} />
     </div>
   );
 }
